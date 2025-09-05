@@ -1,0 +1,69 @@
+import pyspark.sql.functions as F
+from pyspark.sql.types import *
+import os
+
+# Placeholder for Teradata connection details.
+# In a real Databricks environment, this would be managed via secrets.
+jdbc_url = "jdbc:teradata://<your-teradata-host>/DATABASE=your_db"
+connection_properties = {
+    "user": "<your-username>",
+    "password": "<your-password>",
+    "driver": "com.teradata.jdbc.TeraDriver"
+}
+
+# This corresponds to the %LET L6_id=... statement that would precede the macro call.
+L6_id = "some_value_for_l6" # Example value, should be set as per the execution context
+
+def pids_model_sort(L6):
+    
+    teradata_query = f"""
+    (select distinct mjr_p_cls_id, L2 from dl_cntl_adva.fcst_p_upc_inf
+    where mjr_mds_are_id = {L6} 
+    /*and mjr_p_cls_id in ('L2-012711', 'L2-017410', 'L2-010072')*/
+    order by L2 asc) as t
+    """
+    
+    df_l2_info = spark.read \
+        .format("jdbc") \
+        .option("url", jdbc_url) \
+        .option("dbtable", teradata_query) \
+        .options(**connection_properties) \
+        .load()
+        
+    l2_rows = df_l2_info.collect()
+    
+    # This loop replaces the SAS %DO loop.
+    for i, row in enumerate(l2_rows):
+        
+        j = i + 1
+        L2_id = row["mjr_p_cls_id"]
+        string2 = row["L2"]
+        
+        # This replaces the PROC PRINTTO and %PUT statements
+        print(f"--- Processing log for sort_{string2}_s1 ---")
+        print(j)
+        print(string2)
+        
+        table_name = f"promo.pid_{string2}"
+        
+        # This replaces %if %sysfunc(exist(...))
+        if spark.catalog.tableExists(table_name):
+            
+            # The SAS logic for checking filesize to switch between 'sort' and 'tagsort'
+            # is a SAS-specific optimization. PySpark's sort is a distributed operation
+            # and does not have a 'tagsort' equivalent. The translation is a standard
+            # orderBy operation regardless of the source table size.
+            
+            # This corresponds to: proc sort data=promo.pid_&string2.; by ...; run;
+            df_to_sort = spark.table(table_name)
+            df_sorted = df_to_sort.orderBy("p_id", "ut_id", "cldr_day_of_wk_id")
+            
+            df_sorted.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(table_name)
+            
+        print(f"--- End log for sort_{string2}_s1 ---")
+
+
+# This corresponds to the macro call: %pids_model_sort(L6=&L6_id.);
+pids_model_sort(L6=L6_id)
+
+#End-DBShift
