@@ -1,0 +1,311 @@
+import pyspark.sql.functions as F
+from pyspark.sql.types import *
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+import pandas as pd
+
+now_datetime = datetime.now()
+today = now_datetime.strftime("%Y-%m-%d %H:%M:%S")
+print(today)
+
+first_day_of_month = now_datetime.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+data_start = first_day_of_month.strftime("%Y-%m-%d %H:%M:%S")
+print(data_start)
+
+# In SAS, intnx(dtday, &today, -1, b) is ambiguous.
+# A common pattern is to process data up to the current day,
+# so we interpret the stop date as the beginning of today.
+start_of_today = now_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
+data_stop = start_of_today.strftime("%Y-%m-%d %H:%M:%S")
+print(data_stop)
+
+df_cereri_Raport_mv = spark.table("cap_lib.cereri_Raport_mv")
+df_cereri_Raport_mv.createOrReplaceTempView("cereri_Raport_mv")
+df_presc = spark.sql(f"""
+    SELECT *
+    FROM cereri_Raport_mv
+    WHERE dataintrarii >= timestamp'{data_start}' AND dataintrarii < timestamp'{data_stop}'
+""")
+
+df_presc.createOrReplaceTempView("presc")
+df_PROSP_REZ_NEW = spark.table("CAP_LIB.PROSP_REZ_NEW")
+df_PROSP_REZ_NEW.createOrReplaceTempView("PROSP_REZ_NEW")
+df_cereri_status_mv_filtered = spark.table("cap_lib.cereri_status_mv").filter("etapa=1")
+df_cereri_status_mv_filtered.createOrReplaceTempView("cereri_status_mv")
+
+df_presc = spark.sql("""
+    SELECT DISTINCT a.* ,
+    b.DADCRESULTDESC,
+    b.DADCREASON,
+    e.IDBRANCH as IDBRANCH_presc
+    FROM presc a
+    LEFT JOIN CAP_LIB.PROSP_REZ_NEW b
+    ON a.id=b.superid
+    LEFT JOIN cereri_status_mv e
+    ON a.id=e.superid
+""")
+
+df_presc.createOrReplaceTempView("presc")
+df_APPLICATIONUSER_filtered = spark.table("cap_lib.APPLICATIONUSER").filter(F.substring(F.col("APPUBRKREPCODE"), 1, 4).isin('3333','4444','5555','6666','7777'))
+df_APPLICATIONUSER_filtered.createOrReplaceTempView("APPLICATIONUSER")
+
+df_presc = spark.sql("""
+    SELECT a.*,
+    b.APPUBRKREPCODE as Cod_reprez_broker,
+    b.APPUBRKREPNAME as nume_reprez_broker,
+    b.APPUBRKNAME as denumire_broker
+    FROM presc a
+    LEFT JOIN APPLICATIONUSER b
+    ON a.id=b.HNCID
+""")
+
+df_presc = df_presc.withColumn(
+    "temp_canal",
+    F.when(F.col("IDBRANCH_presc") == "WWW", 'Digital')
+     .when(F.col("IDBRANCH_presc") == "DSA 2", 'DSAL')
+     .when(F.col("IDBRANCH_presc") == "DSA", 'DSAR')
+     .when(F.col("IDBRANCH_presc") == "eMAG", 'eMAG')
+     .when(F.col("IDBRANCH_presc").isin('CALLCENTER', 'CALLCENTER - PREAPROBATE'), 'CALLCENTER')
+     .otherwise('Branch')
+)
+
+df_presc = df_presc.withColumn(
+    "canal",
+    F.when((F.col("Cod_reprez_broker").isNotNull()) & (F.col("Cod_reprez_broker") != ""), 'BROKER')
+     .otherwise(F.col("temp_canal"))
+).drop("temp_canal")
+
+df_presc = df_presc.withColumn(
+    "tip_canal",
+    F.when(F.col("IDBRANCH_presc").isin('WWW', 'eMAG'), "Digital")
+     .otherwise("Non-Digital")
+)
+
+df_presc.createOrReplaceTempView("presc")
+df_prod_indc_mv = spark.table("cap_lib.prod_indc_mv")
+df_prod_indc_mv.createOrReplaceTempView("prod_indc_mv")
+df_DAPRODINDICATORS_filtered = spark.table("cap_lib.DAPRODINDICATORS").filter("dapiactive=1")
+df_DAPRODINDICATORS_filtered.createOrReplaceTempView("DAPRODINDICATORS")
+
+df_presc = spark.sql("""
+    SELECT a.*,
+    b.RATING_FINAL,
+    b.RATING_CB,
+    b.RATING_APP,
+    c.DAPIRATINGNEW as RATING_FINAL_new,
+    c.DAPIRATINGCBNEW as rating_cb_new,
+    c.DAPIRATINGAPPNEW as rating_app_new
+    FROM presc a
+    LEFT JOIN prod_indc_mv b
+    ON a.idcerere=b.RCLRCRDID
+    LEFT JOIN DAPRODINDICATORS c
+    ON a.id=c.superid
+""")
+
+df_presc.createOrReplaceTempView("presc")
+df_clienti_mv_filtered = spark.table("cap_lib.clienti_mv").filter("TIPCLIENT=1")
+df_clienti_mv_filtered.createOrReplaceTempView("clienti_mv")
+df_PERSONUSER = spark.table("CAP_LIB.PERSONUSER")
+df_PERSONUSER.createOrReplaceTempView("PERSONUSER")
+
+df_presc = spark.sql("""
+    SELECT a.*,
+    b.RATING_BEHAVIOUR,
+    b.new_to_bank,
+    c.PRSURATINGBHVRNEW as RATING_BEHAVIOUR_new
+    FROM presc a
+    LEFT JOIN clienti_mv b
+    ON a.idcerere=b.IDCERERE
+    LEFT JOIN PERSONUSER c
+    ON b.superid=c.superid and b.hncid=c.hncid
+""")
+
+df_presc = df_presc.withColumn("rating_final_new_num", F.when(F.regexp_replace(F.col("rating_final_new"), '[a-zA-Z]', '') == '', None).otherwise(F.regexp_replace(F.col("rating_final_new"), '[a-zA-Z]', '')).cast('double'))
+df_presc = df_presc.withColumn("rating_cb_new_num", F.when(F.regexp_replace(F.col("rating_cb_new"), '[a-zA-Z]', '') == '', None).otherwise(F.regexp_replace(F.col("rating_cb_new"), '[a-zA-Z]', '')).cast('double'))
+df_presc = df_presc.withColumn("rating_app_new_num", F.when(F.regexp_replace(F.col("rating_app_new"), '[a-zA-Z]', '') == '', None).otherwise(F.regexp_replace(F.col("rating_app_new"), '[a-zA-Z]', '')).cast('double'))
+df_presc = df_presc.withColumn("RATING_BEHAVIOUR_new_num", F.when(F.regexp_replace(F.col("RATING_BEHAVIOUR_new"), '[a-zA-Z]', '') == '', None).otherwise(F.regexp_replace(F.col("RATING_BEHAVIOUR_new"), '[a-zA-Z]', '')).cast('double'))
+
+df_presc = df_presc.withColumn("RATING_FINAL", F.coalesce(F.col("rating_final_new_num"), F.col("RATING_FINAL")))
+df_presc = df_presc.withColumn("RATING_CB", F.coalesce(F.col("rating_cb_new_num"), F.col("RATING_CB")))
+df_presc = df_presc.withColumn("RATING_APP", F.coalesce(F.col("rating_app_new_num"), F.col("RATING_APP")))
+df_presc = df_presc.withColumn("RATING_BEHAVIOUR", F.coalesce(F.col("RATING_BEHAVIOUR_new_num"), F.col("RATING_BEHAVIOUR")))
+df_presc = df_presc.drop("rating_final_new_num", "rating_cb_new_num", "rating_app_new_num", "RATING_BEHAVIOUR_new_num")
+
+df_presc = df_presc.withColumn("flag_matrix", F.when(F.col("RATING_BEHAVIOUR").isNotNull(), 'beh').otherwise('app'))
+df_presc = df_presc.withColumn("rezoltutie", F.when((F.col("flag_matrix") == 'app') & (F.col("RATING_APP") >= 4.5), 'reject app 4.5').otherwise(F.lit(None).cast('string')))
+
+df_mapare_mac = spark.table("DanM.MAPARE_MOTIVE_REJECT_APS").filter(F.col("motiv") == 'MAC')
+mac_macro_list = [row.cod.strip() for row in df_mapare_mac.select(F.trim(F.col("cod")).alias("cod")).collect()]
+
+df_mapare_scor = spark.table("DanM.MAPARE_MOTIVE_REJECT_APS").filter(F.col("motiv") == 'Scor respins')
+scor_macro_list = [row.cod.strip() for row in df_mapare_scor.select(F.trim(F.col("cod")).alias("cod")).collect()]
+
+df_mapare_dlq_bc = spark.table("DanM.MAPARE_MOTIVE_REJECT_APS").filter(F.col("motiv") == 'Delicventa intern + BC')
+dlq_bc_macro_list = [row.cod.strip() for row in df_mapare_dlq_bc.select(F.trim(F.col("cod")).alias("cod")).collect()]
+
+df_mapare_blk = spark.table("DanM.MAPARE_MOTIVE_REJECT_APS").filter(F.col("motiv") == 'Blacklist')
+blk_macro_list = [row.cod.strip() for row in df_mapare_blk.select(F.trim(F.col("cod")).alias("cod")).collect()]
+
+df_mapare_buget = spark.table("DanM.MAPARE_MOTIVE_REJECT_APS").filter(F.col("motiv") == 'Buget respins')
+buget_macro_list = [row.cod.strip() for row in df_mapare_buget.select(F.trim(F.col("cod")).alias("cod")).collect()]
+
+print(f"mac_macro={mac_macro_list}")
+print(f"scor_macro={scor_macro_list}")
+print(f"dlq_bc_macro={dlq_bc_macro_list}")
+print(f"blk_macro={blk_macro_list}")
+print(f"buget_macro={buget_macro_list}")
+
+df_presc = df_presc.withColumn("reasons_array", F.split(F.col("DADCREASON"), "\\|"))
+df_presc = df_presc.withColumn("prosp_rez_01", F.when(F.size(F.array_intersect(F.col("reasons_array"), F.lit(scor_macro_list))) > 0, 1).otherwise(F.lit(None).cast('int')))
+df_presc = df_presc.withColumn("prosp_rez_02", F.when(F.size(F.array_intersect(F.col("reasons_array"), F.lit(mac_macro_list))) > 0, 2).otherwise(F.lit(None).cast('int')))
+df_presc = df_presc.withColumn("prosp_rez_03", F.when(F.size(F.array_intersect(F.col("reasons_array"), F.lit(dlq_bc_macro_list))) > 0, 3).otherwise(F.lit(None).cast('int')))
+df_presc = df_presc.withColumn("prosp_rez_05", F.when(F.size(F.array_intersect(F.col("reasons_array"), F.lit(blk_macro_list))) > 0, 5).otherwise(F.lit(None).cast('int')))
+df_presc = df_presc.withColumn("prosp_rez_06", F.when(F.size(F.array_intersect(F.col("reasons_array"), F.lit(buget_macro_list))) > 0, 6).otherwise(F.lit(None).cast('int')))
+df_presc = df_presc.drop("reasons_array")
+
+df_presc = df_presc.withColumn("maxi", F.greatest(F.col("prosp_rez_01"), F.col("prosp_rez_02"), F.col("prosp_rez_03"), F.col("prosp_rez_05"), F.col("prosp_rez_06")))
+
+df_presc = df_presc.withColumn("maxi", F.when(F.col("rezoltutie") == 'reject app 4.5', 8).otherwise(F.col("maxi")))
+
+df_presc = df_presc.withColumn("Motiv_prescoring_detaliat", 
+    F.when(F.col("DADCRESULTDESC").isin('Recomand Respingerea', 'Respins'),
+        F.when(F.col("maxi") == 1, 'Scor respins')
+         .when(F.col("maxi") == 2, 'MAC')
+         .when(F.col("maxi") == 3, 'Delicventa intern + BC')
+         .when(F.col("maxi") == 5, 'Blacklist')
+         .when(F.col("maxi") == 6, 'Buget respins 1')
+         .when(F.col("maxi") == 8, 'URG intern 4.5')
+    ).otherwise(F.lit(None).cast('string'))
+)
+
+df_presc.createOrReplaceTempView("presc")
+df_cursuri_mv_filtered = spark.table("cap_lib.cursuri_mv").filter("ECHCRRNCYNAME='EUR'")
+df_cursuri_mv_filtered.createOrReplaceTempView("cursuri_mv")
+
+df_presc = spark.sql("""
+    SELECT a.*,
+    b.ECHRATE,
+    a.suma/b.ECHRATE as suma_eur
+    FROM presc a 
+    LEFT JOIN cursuri_mv b
+    ON date(a.dataintrarii)=date(b.ECHCRRNCYDATE)
+""")
+
+df_presc = df_presc.withColumn("categ_client", F.when(F.col("new_to_bank") == 'DA', 'NTB').otherwise('Existing'))
+
+df_presc.createOrReplaceTempView("presc")
+
+stats2_part1_query = f"""
+    SELECT
+        produs,
+        canal,
+        CAST(floor(datediff(date(dataintrarii), date('{data_start}')) / 7) + 1 AS STRING) as week,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'URG intern 4.5' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `URG intern 4.5`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'Buget respins 1' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `Buget respins 1`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'Blacklist' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `Blacklist`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'Delicventa intern + BC' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `Delicventa intern + BC`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'MAC' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `MAC`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'Scor respins' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `Scor respins`
+    FROM presc
+    GROUP BY 1, 2, 3
+"""
+df_stats2_part1 = spark.sql(stats2_part1_query)
+
+stats2_part2_query = f"""
+    SELECT
+        produs,
+        "All" as canal,
+        CAST(floor(datediff(date(dataintrarii), date('{data_start}')) / 7) + 1 AS STRING) as week,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'URG intern 4.5' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `URG intern 4.5`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'Buget respins 1' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `Buget respins 1`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'Blacklist' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `Blacklist`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'Delicventa intern + BC' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `Delicventa intern + BC`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'MAC' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `MAC`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'Scor respins' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `Scor respins`
+    FROM presc
+    GROUP BY 1, 2, 3
+"""
+df_stats2_part2 = spark.sql(stats2_part2_query)
+df_stats2 = df_stats2_part1.unionByName(df_stats2_part2)
+
+stats3_part1_query = """
+    SELECT
+        produs,
+        canal,
+        'ALL MONTH' as week,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'URG intern 4.5' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `URG intern 4.5`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'Buget respins 1' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `Buget respins 1`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'Blacklist' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `Blacklist`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'Delicventa intern + BC' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `Delicventa intern + BC`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'MAC' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `MAC`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'Scor respins' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `Scor respins`
+    FROM presc
+    GROUP BY 1, 2, 3
+"""
+df_stats3_part1 = spark.sql(stats3_part1_query)
+
+stats3_part2_query = """
+    SELECT
+        produs,
+        "All" as canal,
+        'ALL MONTH' as week,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'URG intern 4.5' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `URG intern 4.5`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'Buget respins 1' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `Buget respins 1`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'Blacklist' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `Blacklist`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'Delicventa intern + BC' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `Delicventa intern + BC`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'MAC' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `MAC`,
+        SUM(CASE WHEN Motiv_prescoring_detaliat = 'Scor respins' THEN 1 ELSE 0 END) / SUM(CASE WHEN DADCRESULTDESC IS NOT NULL AND DADCRESULTDESC != '' THEN 1 ELSE 0 END) as `Scor respins`
+    FROM presc
+    GROUP BY 1, 2, 3
+"""
+df_stats3_part2 = spark.sql(stats3_part2_query)
+df_stats3 = df_stats3_part1.unionByName(df_stats3_part2)
+
+pd_stats2 = df_stats2.toPandas()
+pd_stats3 = df_stats3.toPandas()
+
+percent_cols = [
+    'URG intern 4.5', 'Buget respins 1', 'Blacklist',
+    'Delicventa intern + BC', 'MAC', 'Scor respins'
+]
+for col in percent_cols:
+    if col in pd_stats2.columns:
+        pd_stats2[col] = pd_stats2[col].apply(lambda x: f'{x:.2%}' if pd.notnull(x) else None)
+    if col in pd_stats3.columns:
+        pd_stats3[col] = pd_stats3[col].apply(lambda x: f'{x:.2%}' if pd.notnull(x) else None)
+
+html_stats2 = pd_stats2.to_html(index=False, na_rep='-')
+html_stats3 = pd_stats3.to_html(index=False, na_rep='-')
+
+html_report_body = f"""
+<html>
+<head>
+<style>
+  body {{ font-family: Arial, sans-serif; font-size: 8pt; }}
+  h3, h6 {{ color: Black; font-family: Arial, sans-serif; font-weight: normal; }}
+  h3 {{ font-size: 8pt; }}
+  h6 {{ font-size: 8pt; }}
+  div {{ text-align: center; }}
+  table {{ border-collapse: collapse; margin-left: auto; margin-right: auto; }}
+  th, td {{ border: 1px solid black; padding: 4px; }}
+</style>
+</head>
+<body>
+<h3>Buna ziua,</h3>
+<h3>Va rog sa regasiti mai jos status ul monitorizarii tip reject per prod&week, current month</h3>
+
+<div>
+<h6>Monitorizare tip reject prescoring per prod&week, current month</h6>
+{html_stats2}
+<br/>
+{html_stats3}
+</div>
+
+<h3>Multumim,</h3>
+</body>
+</html>
+"""
+
+print(html_report_body)
+
+#End-DBShift
