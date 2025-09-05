@@ -1,0 +1,366 @@
+import pyspark.sql.functions as F
+from pyspark.sql import SparkSession
+import datetime
+
+spark = SparkSession.builder.appName("SAS_to_PySpark_Conversion").getOrCreate()
+
+def dtstamp(message):
+    print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}")
+
+FCST_V1 = None
+PRODTEST = "PROD"
+FCST_V1 = "/dbfs/us.meijer.com/mjrdata/SASProd/SASProjects/salesforecast/1_DemandForecast_Production/SASProgram"
+
+# Placeholder for JDBC connection properties. These should be configured securely, e.g., using Databricks secrets.
+jdbc_url = "jdbc:teradata://your_teradata_host/DATABASE=your_db"
+connection_properties = {
+    "user": "your_username",
+    "password": "your_password", # e.g., dbutils.secrets.get(scope="your_scope", key="your_key")
+    "driver": "com.teradata.jdbc.TeraDriver"
+}
+
+%run f"{FCST_V1}/FolderSetup_SAS2"
+%run f"{FCST_V1}/DTStamp.sas"
+dtstamp(set='Y')
+
+sql_insert_query = """
+INSERT INTO fcst_update_dtinf
+SELECT Current_Date AS upd_date, Max(a.startDate) AS startDate, Max(wk_end_dt) AS endDate,Count(DISTINCT wk_end_dt) AS nweeks
+FROM
+(
+    SELECT max(endDate) +1 AS startDate 
+    FROM  adva.fcst_update_dtinf AS a 
+) AS a,
+vprod_dim.dt_inf AS b 
+WHERE wk_end_dt BETWEEN startDate AND Current_Date
+"""
+# In a production environment, this raw DML would be executed via a proper JDBC connection method.
+# For this translation, we acknowledge the command to be executed against Teradata.
+print(f"INFO: The following SQL would be executed against Teradata:\n{sql_insert_query}")
+
+
+# The following code was commented out in the original SAS script.
+# sql_insert_rebuild_query = """
+# INSERT INTO fcst_update_dtinf
+# SELECT Current_Date AS upd_date, (date '2016-01-01') AS startDate, (date '2020-10-10') AS endDate,Count(DISTINCT wk_end_dt) AS nweeks
+# FROM
+# (
+# 	SELECT  (date '2016-01-01') AS startDate 
+# 	FROM  adva.fcst_update_dtinf AS a 
+# ) AS a,
+# vprod_dim.dt_inf AS b 
+# WHERE wk_end_dt BETWEEN startDate AND Current_Date
+# """
+# print(f"INFO: The following commented-out SQL would be executed against Teradata:\n{sql_insert_rebuild_query}")
+
+df_fcst_update_dtinf = spark.read.format("jdbc").option("url", jdbc_url).option("dbtable", "adva.fcst_update_dtinf").options(**connection_properties).load()
+df_fcst_update_dtinf.createOrReplaceTempView("fcst_update_dtinf_temp")
+
+df_dates_agg = spark.sql("""
+    SELECT
+        MAX(startDate) as max_start,
+        MAX(endDate) as max_end
+    FROM fcst_update_dtinf_temp
+""")
+
+date_row = df_dates_agg.first()
+max_start_date = date_row['max_start']
+max_end_date = date_row['max_end']
+
+MinDt = f"'{max_start_date.strftime('%Y-%m-%d')}'"
+MaxDt = f"'{max_end_date.strftime('%Y-%m-%d')}'"
+MinDt_SAS = max_start_date.strftime('%d%b%Y').upper()
+MaxDT_SAS = max_end_date.strftime('%d%b%Y').upper()
+
+print(f"{MinDt}")
+print(f"{MaxDt}")
+print(f"{MinDt_SAS}")
+print(f"{MaxDT_SAS}")
+
+# The following SAS code enables grid services and auto-sign-on, which are specific
+# to the SAS environment and do not have direct PySpark equivalents.
+print("NOTE: rc=0")
+# options autosignon; is a SAS-specific setting.
+
+work_path = spark.conf.get("spark.sql.warehouse.dir")
+print(f"NOTE: work path is {work_path}")
+
+# The following DATA step dynamically creates a SAS program to be included later.
+# In PySpark, we will execute the intended logic directly.
+
+# The commented out SAS code is related to setting up and cleaning Teradata tables.
+# These operations would be performed using JDBC connections.
+
+libname_shared_path = spark.conf.get("spark.sql.warehouse.dir") + "/shared"
+spark.sql(f"CREATE DATABASE IF NOT EXISTS shared LOCATION '{libname_shared_path}'")
+
+# proc printto... -> This redirects SAS log output. In Databricks, output is captured in the notebook.
+print("Log redirection to \\us.meijer.com\\mjrdata\\Sdrive\\ShopperMarketing\\Analytics\\Staff Folders\\Aldijana Lelak Avdic\\Corp Ad Hoc\\SalesForecast\\SASLog\\Update\\Daily\\DatasetDLY.txt")
+
+# options errorcheck=normal errors=0 ; -> SAS-specific error handling
+
+# --- Start of rsubmit gro block ---
+# The rsubmit blocks in SAS are used for parallel execution.
+# In a single Databricks notebook, these will be executed sequentially.
+# For parallel execution, one would use dbutils.notebook.run() for each block.
+work_path = spark.conf.get("spark.sql.warehouse.dir")
+print(f"NOTE: work path is {work_path}")
+print("NOTE: running test;")
+%run f"{FCST_V1}/FolderSetup_SAS2"
+%run f"{FCST_V1}/DTStamp.sas"
+%run f"{FCST_V1}/CalcError"
+%run f"{FCST_V1}/GetFileList"
+L6_id = "'L6-000005'"
+%run f"{FCST_V1}/SASDataset_CreateTable.sas"
+dtstamp("End Dataset Grocery")
+# --- End of rsubmit gro block ---
+
+# --- Start of rsubmit pets block ---
+work_path = spark.conf.get("spark.sql.warehouse.dir")
+print(f"NOTE: work path is {work_path}")
+print("NOTE: running test;")
+%run f"{FCST_V1}/FolderSetup_SAS2"
+%run f"{FCST_V1}/DTStamp.sas"
+%run f"{FCST_V1}/CalcError"
+%run f"{FCST_V1}/GetFileList"
+L6_id = "'L6-000013'"
+%run f"{FCST_V1}/SASDataset_CreateTable.sas"
+%run f"{FCST_V1}/SortDataset.sas"
+dtstamp("End Dataset Pets")
+# --- End of rsubmit pets block ---
+
+# FRESH HAS IT'S OWN JOB TO UPDATE DATASETS WEEKLY, SO WE DON'T RUN IT HERE
+
+# --- Start of rsubmit hbc block ---
+work_path = spark.conf.get("spark.sql.warehouse.dir")
+print(f"NOTE: work path is {work_path}")
+print("NOTE: running test;")
+%run f"{FCST_V1}/FolderSetup_SAS2"
+%run f"{FCST_V1}/DTStamp.sas"
+%run f"{FCST_V1}/CalcError"
+%run f"{FCST_V1}/GetFileList"
+L6_id = "'L6-000001'"
+%run f"{FCST_V1}/SASDataset_CreateTable.sas"
+dtstamp("End Dataset HBC")
+# --- End of rsubmit hbc block ---
+
+print("# SAS Log: waitfor _all_ gro hbc pets;")
+print("# SAS Log: signoff gro;")
+print("# SAS Log: signoff pets;")
+print("# SAS Log: signoff hbc;")
+
+# --- Start of rsubmit gro1 block ---
+work_path = spark.conf.get("spark.sql.warehouse.dir")
+print(f"NOTE: work path is {work_path}")
+print("NOTE: running test;")
+%run f"{FCST_V1}/FolderSetup_SAS2"
+%run f"{FCST_V1}/DTStamp.sas"
+%run f"{FCST_V1}/CalcError"
+%run f"{FCST_V1}/GetFileList"
+L6_id = "'L6-000005'"
+%run f"{FCST_V1}/SortDataset.sas"
+dtstamp("End Dataset Grocery")
+# --- End of rsubmit gro1 block ---
+
+# --- Start of rsubmit gro2 block ---
+work_path = spark.conf.get("spark.sql.warehouse.dir")
+print(f"NOTE: work path is {work_path}")
+print("NOTE: running test;")
+%run f"{FCST_V1}/FolderSetup_SAS2"
+%run f"{FCST_V1}/DTStamp.sas"
+%run f"{FCST_V1}/CalcError"
+%run f"{FCST_V1}/GetFileList"
+L6_id = "'L6-000005'"
+%run f"{FCST_V1}/SortDataset_V2.sas"
+dtstamp("End Dataset Gro_Sort")
+# --- End of rsubmit gro2 block ---
+
+# --- Start of rsubmit HBC1 block ---
+work_path = spark.conf.get("spark.sql.warehouse.dir")
+print(f"NOTE: work path is {work_path}")
+print("NOTE: running test;")
+%run f"{FCST_V1}/FolderSetup_SAS2"
+%run f"{FCST_V1}/DTStamp.sas"
+%run f"{FCST_V1}/CalcError"
+%run f"{FCST_V1}/GetFileList"
+L6_id = "'L6-000001'"
+%run f"{FCST_V1}/SortDataset.sas"
+dtstamp("End Dataset HBC_Sort")
+# --- End of rsubmit HBC1 block ---
+
+# --- Start of rsubmit HBC2 block ---
+work_path = spark.conf.get("spark.sql.warehouse.dir")
+print(f"NOTE: work path is {work_path}")
+print("NOTE: running test;")
+%run f"{FCST_V1}/FolderSetup_SAS2"
+%run f"{FCST_V1}/DTStamp.sas"
+%run f"{FCST_V1}/CalcError"
+%run f"{FCST_V1}/GetFileList"
+L6_id = "'L6-000001'"
+%run f"{FCST_V1}/SortDataset_V2.sas"
+dtstamp("End Dataset HBC")
+# --- End of rsubmit HBC2 block ---
+
+print("# SAS Log: waitfor _all_ HBC1 HBC2  gro1 gro2;")
+print("# SAS Log: signoff  gro1;")
+print("# SAS Log: signoff  gro2;")
+print("# SAS Log: signoff  HBC1;")
+print("# SAS Log: signoff  HBC2;")
+
+email_to_weekly = [ "advanced.analytics@meijer.com", "justin.kaukonen@meijer.com", "aldijana.avdic@meijer.com", "Victor.Vardan@meijer.com", "Thomas.Eldridge@meijer.com", "Loretta.Davidson@meijer.com", "Sarah.George@meijer.com",  "Joel.Smith@meijer.com" ]
+email_subject_weekly = "Dataset Creation Update"
+email_from_weekly = "sarah.george@meijer.com"
+email_reply_to_weekly = "xxxxx@xxxx.com"
+
+tdate = datetime.datetime.now().strftime("%d%b%Y").upper()
+print(f"{tdate}")
+
+html_body_weekly = f"""
+<html>
+<head><style></style></head>
+<body>
+<p>Good Morning,</p>
+<p>Good Morning,</p>
+<p>GROCERY, PETS, & HBC: Daily Datesets Updated; Weekly Datasets will commence</p>
+<p>Have a Great Day!!!</p>
+<p>{tdate}</p>
+</body>
+</html>
+"""
+# In a production environment, this email would be sent using a notification service.
+print("--- Generated Email Body (Weekly) ---")
+print(f"To: {email_to_weekly}")
+print(f"Subject: {email_subject_weekly}")
+print(html_body_weekly)
+print("--- End Email Body ---")
+
+print("Log redirection to \\us.meijer.com\\mjrdata\\Sdrive\\ShopperMarketing\\Analytics\\Staff Folders\\Aldijana Lelak Avdic\\Corp Ad Hoc\\SalesForecast\\SASLog\\Update\\Weekly\\DatasetWkly.txt")
+
+# --- Start of rsubmit task1 block ---
+work_path = spark.conf.get("spark.sql.warehouse.dir")
+print(f"NOTE: work path is {work_path}")
+print("NOTE: running test;")
+%run f"{FCST_V1}/FolderSetup_SAS2"
+%run f"{FCST_V1}/DTStamp.sas"
+%run f"{FCST_V1}/CalcError"
+%run f"{FCST_V1}/GetFileList"
+L6_id = "'L6-000005'"
+%run f"{FCST_V1}/SASDatasets_Wkly.sas"
+dtstamp("End Dataset Grocery")
+# --- End of rsubmit task1 block ---
+
+# --- Start of rsubmit task2 block ---
+work_path = spark.conf.get("spark.sql.warehouse.dir")
+print(f"NOTE: work path is {work_path}")
+print("NOTE: running test;")
+%run f"{FCST_V1}/FolderSetup_SAS2"
+%run f"{FCST_V1}/DTStamp.sas"
+%run f"{FCST_V1}/CalcError"
+%run f"{FCST_V1}/GetFileList"
+L6_id = "'L6-000013'"
+%run f"{FCST_V1}/SASDatasets_Wkly.sas"
+dtstamp("End Dataset task2")
+# --- End of rsubmit task2 block ---
+
+# The following blocks for task3 and task4 were commented out in the original SAS.
+
+print("# SAS Log: waitfor _all_  task1 task2 task4;")
+print("# SAS Log: signoff  task1;")
+print("# SAS Log: signoff  task2;")
+print("# SAS Log: signoff  task4;")
+
+dtstamp("End of Dataset Update")
+
+email_to_regional = [ "advanced.analytics@meijer.com", "aldijana.avdic@meijer.com", "justin.kaukonen@meijer.com",  "Victor.Vardan@meijer.com", "Thomas.Eldridge@meijer.com", "Loretta.Davidson@meijer.com", "Sarah.George@meijer.com", "Joel.Smith@meijer.com" ]
+email_subject_regional = "Dataset Creation Update"
+email_from_regional = "aldijana.avdic@meijer.com"
+email_reply_to_regional = "xxxxx@xxxx.com"
+
+tdate = datetime.datetime.now().strftime("%d%b%Y").upper()
+print(f"{tdate}")
+
+html_body_regional = f"""
+<html>
+<head><style></style></head>
+<body>
+<p>Good Morning,</p>
+<p>Good Morning,</p>
+<p>GROCERY, PETS, & HBC: Weekly Datesets Updated; Regional Dataset Updates will commence</p>
+<p>Have a Great Day!!!</p>
+<p>{tdate}</p>
+</body>
+</html>
+"""
+print("--- Generated Email Body (Regional) ---")
+print(f"To: {email_to_regional}")
+print(f"Subject: {email_subject_regional}")
+print(html_body_regional)
+print("--- End Email Body ---")
+
+print("Log redirection to \\us.meijer.com\\mjrdata\\Sdrive\\ShopperMarketing\\Analytics\\Staff Folders\\Aldijana Lelak Avdic\\Corp Ad Hoc\\SalesForecast\\SASLog\\Update\\DatasetRgnl.txt")
+
+# --- Start of rsubmit task1 block (Regional) ---
+work_path = spark.conf.get("spark.sql.warehouse.dir")
+print(f"NOTE: work path is {work_path}")
+print("NOTE: running test;")
+%run f"{FCST_V1}/FolderSetup_SAS2"
+%run f"{FCST_V1}/DTStamp.sas"
+%run f"{FCST_V1}/CalcError"
+%run f"{FCST_V1}/GetFileList"
+L6_id = "'L6-000005'"
+%run f"{FCST_V1}/SASDataset_Rgnl.sas"
+dtstamp("End Dataset Grocery")
+# --- End of rsubmit task1 block (Regional) ---
+
+# --- Start of rsubmit task2 block (Regional) ---
+work_path = spark.conf.get("spark.sql.warehouse.dir")
+print(f"NOTE: work path is {work_path}")
+print("NOTE: running test;")
+%run f"{FCST_V1}/FolderSetup_SAS2"
+%run f"{FCST_V1}/DTStamp.sas"
+%run f"{FCST_V1}/CalcError"
+%run f"{FCST_V1}/GetFileList"
+L6_id = "'L6-000013'"
+%run f"{FCST_V1}/SASDataset_Rgnl.sas"
+dtstamp("End Dataset task2")
+# --- End of rsubmit task2 block (Regional) ---
+
+# The following blocks for task3 and task4 were commented out in the original SAS.
+
+print("# SAS Log: waitfor _all_  task1 task2 task4;")
+print("# SAS Log: signoff  task1;")
+print("# SAS Log: signoff  task2;")
+print("# SAS Log: signoff  task4;")
+
+dtstamp("End of Dataset Update")
+
+email_to_datacheck = [ "sarah.george@meijer.com", "justin.kaukonen@meijer.com" ]
+email_subject_datacheck = "Data Check"
+email_from_datacheck = "sarah.george@meijer.com"
+email_reply_to_datacheck = "xxxxx@xxxx.com"
+
+tdate = datetime.datetime.now().strftime("%d%b%Y").upper()
+print(f"{tdate}")
+
+html_body_datacheck = f"""
+<html>
+<head><style></style></head>
+<body>
+<p>Good Morning,</p>
+<p>Good Morning,</p>
+<p>GROCERY & HBC & PETS: Daily, Weekly, and Regional datasets have finished updating.; Datacheck will now commence.</p>
+<p>Have a Great Day!!!</p>
+<p>{tdate}</p>
+</body>
+</html>
+"""
+print("--- Generated Email Body (Data Check) ---")
+print(f"To: {email_to_datacheck}")
+print(f"Subject: {email_subject_datacheck}")
+print(html_body_datacheck)
+print("--- End Email Body ---")
+
+%run f"{FCST_V1}/SASDataCHECK.sas"
+dtstamp("End of Dataset Check")
+
+#End-DBShift

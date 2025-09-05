@@ -1,0 +1,630 @@
+import pyspark.sql.functions as F
+from pyspark.sql import SparkSession
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, DoubleType, Row
+import datetime
+
+spark = SparkSession.builder.appName("SAS_to_PySpark_Conversion").getOrCreate()
+
+today = datetime.date.today()
+sysdate9 = today
+dte = today.strftime('%d%b%Y').upper()
+print(dte)
+yymmn = today.strftime('%Y%m')
+print(yymmn)
+monyy = today.strftime('%b%y').upper()
+print(monyy)
+data_crt = (today - datetime.timedelta(days=1)).strftime('%d%b%y').upper()
+print(data_crt)
+start_month = today.replace(day=1).strftime('%d%b%y').upper()
+print(start_month)
+
+df_cereri_raport_mv = spark.table("cap_lib.cereri_raport_mv")
+df_cereri_raport_mv.createOrReplaceTempView("cereri_raport_mv")
+
+df_flexiwww = spark.sql("""
+    select distinct IDCERERE,
+        id,
+        produs,
+        DATACERERII,
+        NUMESOLICITANT,
+        CNPSOLICITANT,
+        SUMA,
+        SUMA_SOLIC,
+        NUMEETAPA,
+        LIMITA_MAX_CALC,
+        NUMEMONEDA,
+        NUMESTATUS as status_actual,
+    case 
+        when STATUS=1 then 'DA'
+        else 'NU'
+    end 
+as flag_aprobat,
+    dataintrarestatus as data_status_actual,
+    data_Acord as data_disbursare,
+case 
+    when data_Acord is not null and status=1 then 'DA'
+    else 'NU'
+end 
+as flag_disbursat,
+data_Acord as data_disbursare,
+case 
+    when substr(retailer,1,4)='1111' then 'RBRO'
+    when substr(retailer,1,4)='2222' then 'Lugera'
+    else 'Branch'
+end 
+as canal_vanzare
+from cereri_raport_mv
+where dataintrarii >= '2019-02-01 00:00:00' /*and etapa=11 and status=1*/
+    and  iduser="c998wwwusr" and idprodus=1
+""")
+
+df_flexiwww = df_flexiwww.dropDuplicates(['idcerere'])
+
+df_cereri_status_mv = spark.table("CAP_LIB.CERERI_STATUS_MV")
+df_cereri_status_mv.createOrReplaceTempView("CERERI_STATUS_MV")
+df_flexiwww.createOrReplaceTempView("flexiwww")
+
+df_drs = spark.sql("""
+    select distinct superid as id
+    from CERERI_STATUS_MV 
+    where drsuser not in ("uto","998") and superid in (select id from flexiwww)
+""")
+
+df_drs.createOrReplaceTempView("drs")
+
+df_flexiwww2 = spark.sql("""
+    select a.*,
+    case when a.id=b.id then 'Flux_Lead'
+    else 'Flux_E2E'
+    end as tip_flux
+    from flexiwww a
+    left join drs b
+    on a.id=b.id
+""")
+
+df_flexiwww2.createOrReplaceTempView("flexiwww2")
+
+df_prosp = spark.sql("""
+select superid,
+DATAETAPA
+from CAP_LIB.CERERI_STATUS_MV 
+where superid in (select id from flexiwww2) and ETAPA=1 and DATAETAPA>='2019-02-01 00:00:00'
+""")
+
+df_prosp.createOrReplaceTempView("prosp")
+df_prosp_rez_new = spark.table("cap_lib.prosp_rez_new")
+df_prosp_rez_new.createOrReplaceTempView("prosp_rez_new")
+
+df_prosp2 = spark.sql("""
+select a.*,
+b.tip_flux,
+c.DADCRESULTDESC as rezol_presc
+from prosp a
+left join flexiwww2 b
+on a.superid=b.id
+left join prosp_rez_new c
+on a.superid=c.SUPERID
+""")
+
+df_prosp2.createOrReplaceTempView("prosp2")
+
+df_comm = spark.sql("""
+select superid,
+DATAETAPA
+from CAP_LIB.CERERI_STATUS_MV 
+where superid in (select id from flexiwww2) and ETAPA=2 and DATAETAPA>='2019-02-01 00:00:00'
+""")
+
+df_comm.createOrReplaceTempView("comm")
+df_comm_rez_new = spark.table("cap_lib.comm_rez_new")
+df_comm_rez_new.createOrReplaceTempView("comm_rez_new")
+
+df_comm2 = spark.sql("""
+select a.*,
+b.tip_flux,
+c.DADCRESULTDESC as rezol_comm
+from comm a
+left join flexiwww2 b
+on a.superid=b.id
+left join comm_rez_new c
+on a.superid=c.SUPERID
+""")
+
+df_comm2.createOrReplaceTempView("comm2")
+
+df_flexiwww3 = spark.sql("""
+select * from flexiwww2 where id in (select SUPERID from prosp2)
+""")
+
+df_flexiwww3.createOrReplaceTempView("flexiwww3")
+
+df_flexiwww4 = spark.sql("""
+select a.*,
+b.rezol_presc,
+b.DATAETAPA as data_presc,
+UPPER(DATE_FORMAT(b.DATAETAPA, 'MMMyy')) as luna_an_presc,
+case when a.id=b.superid then 'DA'
+else 'NU'
+end as flag_presc,
+c.rezol_comm,
+case when a.id=c.superid then 'DA'
+else 'NU'
+end as flag_comm,
+case when DATEDIFF(CAST(data_status_actual AS DATE), CAST(data_presc AS DATE))=0 and flag_aprobat='DA' and flag_disbursat='DA' then 'DA'
+else 'NU'
+end as disbursat_zi_pe_zi
+from flexiwww3 a
+left join prosp2 b
+on a.id=b.superid
+left join comm2 c
+on a.id=c.superid
+""")
+
+df_flexiwww4.createOrReplaceTempView("flexiwww4")
+
+df_stats = spark.sql("""
+select 
+tip_flux,
+luna_an_presc,
+sum(case when flag_presc='DA' then 1 else 0 end) as presc_total,
+sum(case when flag_presc='DA' then 1 else 0 end)/count(*) as total_presc_perc,
+sum(case when rezol_presc='Aprobat' then 1 else 0 end) as aprob_presc,
+sum(case when rezol_presc='Aprobat' then 1 else 0 end)/count(*) as rata_aprob_presc,
+sum(case when flag_comm='DA' then 1 else 0 end) as conversie_cereri,
+sum(case when flag_comm='DA' then 1 else 0 end)/count(*) as rata_conversie_cereri,
+sum(case when flag_comm='DA' and rezol_comm='Aprobat' then 1 else 0 end) as aprob_comm,
+sum(case when flag_comm='DA' and rezol_comm='Aprobat' then 1 else 0 end)/count(*) as rata_aprob_comm,
+sum(case when flag_disbursat='DA' then 1 else 0 end) as disbursate,
+sum(case when flag_disbursat='DA' then 1 else 0 end)/count(*) as rata_disbursare,
+sum(case when flag_disbursat='DA' and disbursat_zi_pe_zi='DA' then 1 else 0 end) as disbursate_zi_pe_zi,
+sum(case when flag_disbursat='DA' and disbursat_zi_pe_zi='DA' then 1 else 0 end)/count(*) as rata_disbursare_zi_pe_zi
+from flexiwww4
+group by 1,2
+""")
+df_stats.createOrReplaceTempView("stats")
+
+df_stats2_E2E_leads = spark.sql("""
+select 
+luna_an_presc,
+sum(case when flag_presc='DA' then 1 else 0 end) as presc_total,
+sum(case when flag_presc='DA' then 1 else 0 end)/count(*) as total_presc_perc,
+sum(case when rezol_presc='Aprobat' then 1 else 0 end) as aprob_presc,
+sum(case when rezol_presc='Aprobat' then 1 else 0 end)/count(*) as rata_aprob_presc,
+sum(case when flag_comm='DA' then 1 else 0 end) as conversie_cereri,
+sum(case when flag_comm='DA' then 1 else 0 end)/count(*) as rata_conversie_cereri,
+sum(case when flag_comm='DA' and rezol_comm='Aprobat' then 1 else 0 end) as aprob_comm,
+sum(case when flag_comm='DA' and rezol_comm='Aprobat' then 1 else 0 end)/count(*) as rata_aprob_comm,
+sum(case when flag_disbursat='DA' then 1 else 0 end) as disbursate,
+sum(case when flag_disbursat='DA' then 1 else 0 end)/count(*) as rata_disbursare,
+sum(case when flag_disbursat='DA' and disbursat_zi_pe_zi='DA' then 1 else 0 end) as disbursate_zi_pe_zi,
+sum(case when flag_disbursat='DA' and disbursat_zi_pe_zi='DA' then 1 else 0 end)/count(*) as rata_disbursare_zi_pe_zi
+from flexiwww4
+group by 1
+""")
+df_stats2_E2E_leads.createOrReplaceTempView("stats2_E2E_leads")
+
+df_stats2_E2E_all = spark.sql("""
+select 
+tip_flux,
+sum(case when flag_presc='DA' then 1 else 0 end) as presc_total_E2E,
+sum(case when flag_presc='DA' then 1 else 0 end)/count(*) as total_presc_perc_E2E,
+sum(case when rezol_presc='Aprobat' then 1 else 0 end) as aprob_presc_E2E,
+sum(case when rezol_presc='Aprobat' then 1 else 0 end)/count(*) as rata_aprob_presc_E2E,
+sum(case when flag_comm='DA' then 1 else 0 end) as conversie_cereri_E2E,
+sum(case when flag_comm='DA' then 1 else 0 end)/count(*) as rata_conversie_cereri_E2E,
+sum(case when flag_comm='DA' and rezol_comm='Aprobat' then 1 else 0 end) as aprob_comm_E2E,
+sum(case when flag_comm='DA' and rezol_comm='Aprobat' then 1 else 0 end)/count(*) as rata_aprob_comm_E2E,
+sum(case when flag_disbursat='DA' then 1 else 0 end) as disbursate_E2E,
+sum(case when flag_disbursat='DA' then 1 else 0 end)/count(*) as rata_disbursare_E2E,
+sum(case when flag_disbursat='DA' and disbursat_zi_pe_zi='DA' then 1 else 0 end) as disbursate_zi_pe_zi_E2E,
+sum(case when flag_disbursat='DA' and disbursat_zi_pe_zi='DA' then 1 else 0 end)/count(*) as rata_disbursare_zi_pe_zi_E2E
+from flexiwww4
+where tip_flux='Flux_E2E'
+group by 1
+""")
+df_stats2_E2E_all.createOrReplaceTempView("stats2_E2E_all")
+
+result = spark.sql(f"Select presc_total from stats2_E2E_leads where luna_an_presc='{monyy}'").collect()
+presc_total = result[0][0] if result else None
+result = spark.sql(f"Select aprob_presc from stats2_E2E_leads where luna_an_presc='{monyy}'").collect()
+aprob_presc = result[0][0] if result else None
+result = spark.sql(f"Select conversie_cereri from stats2_E2E_leads where luna_an_presc='{monyy}'").collect()
+conversie_cereri = result[0][0] if result else None
+result = spark.sql(f"Select aprob_comm from stats2_E2E_leads where luna_an_presc='{monyy}'").collect()
+aprob_comm = result[0][0] if result else None
+result = spark.sql(f"Select disbursate from stats2_E2E_leads where luna_an_presc='{monyy}'").collect()
+disbursate = result[0][0] if result else None
+result = spark.sql(f"Select total_presc_perc from stats2_E2E_leads where luna_an_presc='{monyy}'").collect()
+perc_presc_total = result[0][0] if result else None
+result = spark.sql(f"Select rata_aprob_presc from stats2_E2E_leads where luna_an_presc='{monyy}'").collect()
+perc_aprob_presc = result[0][0] if result else None
+result = spark.sql(f"Select rata_conversie_cereri from stats2_E2E_leads where luna_an_presc='{monyy}'").collect()
+perc_conversie_cereri = result[0][0] if result else None
+result = spark.sql(f"Select rata_aprob_comm from stats2_E2E_leads where luna_an_presc='{monyy}'").collect()
+perc_aprob_comm = result[0][0] if result else None
+result = spark.sql(f"Select rata_disbursare from stats2_E2E_leads where luna_an_presc='{monyy}'").collect()
+perc_disbursate = result[0][0] if result else None
+result = spark.sql(f"Select presc_total from stats where luna_an_presc='{monyy}' and tip_flux='Flux_E2E'").collect()
+presc_total_E2E = result[0][0] if result else None
+result = spark.sql(f"Select aprob_presc from stats where luna_an_presc='{monyy}' and tip_flux='Flux_E2E'").collect()
+aprob_presc_E2E = result[0][0] if result else None
+result = spark.sql(f"Select conversie_cereri from stats where luna_an_presc='{monyy}' and tip_flux='Flux_E2E'").collect()
+conversie_cereri_E2E = result[0][0] if result else None
+result = spark.sql(f"Select aprob_comm from stats where luna_an_presc='{monyy}' and tip_flux='Flux_E2E'").collect()
+aprob_comm_E2E = result[0][0] if result else None
+result = spark.sql(f"Select disbursate from stats where luna_an_presc='{monyy}' and tip_flux='Flux_E2E'").collect()
+disbursate_E2E = result[0][0] if result else None
+result = spark.sql(f"Select disbursate_zi_pe_zi from stats where luna_an_presc='{monyy}' and tip_flux='Flux_E2E'").collect()
+disbursate_zi_pe_zi_E2E = result[0][0] if result else None
+result = spark.sql(f"Select total_presc_perc from stats where luna_an_presc='{monyy}' and tip_flux='Flux_E2E'").collect()
+perc_presc_total_E2E = result[0][0] if result else None
+result = spark.sql(f"Select rata_aprob_presc from stats where luna_an_presc='{monyy}' and tip_flux='Flux_E2E'").collect()
+perc_aprob_presc_E2E = result[0][0] if result else None
+result = spark.sql(f"Select rata_conversie_cereri from stats where luna_an_presc='{monyy}' and tip_flux='Flux_E2E'").collect()
+perc_conversie_cereri_E2E = result[0][0] if result else None
+result = spark.sql(f"Select rata_aprob_comm from stats where luna_an_presc='{monyy}' and tip_flux='Flux_E2E'").collect()
+perc_aprob_comm_E2E = result[0][0] if result else None
+result = spark.sql(f"Select rata_disbursare from stats where luna_an_presc='{monyy}' and tip_flux='Flux_E2E'").collect()
+perc_disbursate_E2E = result[0][0] if result else None
+result = spark.sql(f"Select rata_disbursare_zi_pe_zi from stats where luna_an_presc='{monyy}' and tip_flux='Flux_E2E'").collect()
+perc_disbursate_zi_pe_zi_E2E = result[0][0] if result else None
+result = spark.sql(f"Select presc_total from stats where luna_an_presc='{monyy}' and tip_flux='Flux_Lead'").collect()
+presc_total_lead = result[0][0] if result else None
+result = spark.sql(f"Select aprob_presc from stats where luna_an_presc='{monyy}' and tip_flux='Flux_Lead'").collect()
+aprob_presc_lead = result[0][0] if result else None
+result = spark.sql(f"Select conversie_cereri from stats where luna_an_presc='{monyy}' and tip_flux='Flux_Lead'").collect()
+conversie_cereri_lead = result[0][0] if result else None
+result = spark.sql(f"Select aprob_comm from stats where luna_an_presc='{monyy}' and tip_flux='Flux_Lead'").collect()
+aprob_comm_lead = result[0][0] if result else None
+result = spark.sql(f"Select disbursate from stats where luna_an_presc='{monyy}' and tip_flux='Flux_Lead'").collect()
+disbursate_lead = result[0][0] if result else None
+result = spark.sql(f"Select total_presc_perc from stats where luna_an_presc='{monyy}' and tip_flux='Flux_Lead'").collect()
+perc_presc_total_lead = result[0][0] if result else None
+result = spark.sql(f"Select rata_aprob_presc from stats where luna_an_presc='{monyy}' and tip_flux='Flux_Lead'").collect()
+perc_aprob_presc_lead = result[0][0] if result else None
+result = spark.sql(f"Select rata_conversie_cereri from stats where luna_an_presc='{monyy}' and tip_flux='Flux_Lead'").collect()
+perc_conversie_cereri_lead = result[0][0] if result else None
+result = spark.sql(f"Select rata_aprob_comm from stats where luna_an_presc='{monyy}' and tip_flux='Flux_Lead'").collect()
+perc_aprob_comm_lead = result[0][0] if result else None
+result = spark.sql(f"Select rata_disbursare from stats where luna_an_presc='{monyy}' and tip_flux='Flux_Lead'").collect()
+perc_disbursate_lead = result[0][0] if result else None
+result = spark.sql(f"Select presc_total_E2E from stats2_E2E_all").collect()
+presc_total_E2E_all = result[0][0] if result else None
+result = spark.sql(f"Select aprob_presc_E2E from stats2_E2E_all").collect()
+aprob_presc_E2E_all = result[0][0] if result else None
+result = spark.sql(f"Select conversie_cereri_E2E from stats2_E2E_all").collect()
+conversie_cereri_E2E_all = result[0][0] if result else None
+result = spark.sql(f"Select aprob_comm_E2E from stats2_E2E_all").collect()
+aprob_comm_E2E_all = result[0][0] if result else None
+result = spark.sql(f"Select disbursate_E2E from stats2_E2E_all").collect()
+disbursate_E2E_all = result[0][0] if result else None
+result = spark.sql(f"Select disbursate_zi_pe_zi_E2E from stats2_E2E_all").collect()
+disbursate_zi_pe_zi_E2E_all = result[0][0] if result else None
+result = spark.sql(f"Select total_presc_perc_E2E from stats2_E2E_all").collect()
+perc_presc_total_E2E_all = result[0][0] if result else None
+result = spark.sql(f"Select rata_aprob_presc_E2E from stats2_E2E_all").collect()
+perc_aprob_presc_E2E_all = result[0][0] if result else None
+result = spark.sql(f"Select rata_conversie_cereri_E2E from stats2_E2E_all").collect()
+perc_conversie_cereri_E2E_all = result[0][0] if result else None
+result = spark.sql(f"Select rata_aprob_comm_E2E from stats2_E2E_all").collect()
+perc_aprob_comm_E2E_all = result[0][0] if result else None
+result = spark.sql(f"Select rata_disbursare_E2E from stats2_E2E_all").collect()
+perc_disbursate_E2E_all = result[0][0] if result else None
+result = spark.sql(f"Select rata_disbursare_zi_pe_zi_E2E from stats2_E2E_all").collect()
+perc_disbursate_zi_pe_zi_E2E_all = result[0][0] if result else None
+result = spark.sql("select sum(case when rezol_presc not in ('Respins','Recomand Respingerea') and flag_aprobat ne 'DA' and NUMEETAPA ne 'Decizionate' and tip_flux='Flux_E2E' then 1 else 0 end) from FLEXIWWW4").collect()
+cereri_E2E_transformabile_all = result[0][0] if result else None
+result = spark.sql(f"select sum(case when rezol_presc not in ('Respins','Recomand Respingerea') and flag_aprobat ne 'DA' and NUMEETAPA ne 'Decizionate' and tip_flux='Flux_E2E' then 1 else 0 end) from FLEXIWWW4 where luna_an_presc='{monyy}'").collect()
+cereri_E2E_transformabile_crt = result[0][0] if result else None
+gpath = '.'
+dpi = 200
+
+funnel_schema = StructType([
+    StructField("Level", IntegerType(), True),
+    StructField("check_values", IntegerType(), True)
+])
+funnel_data = [
+    (1, 100), (2, 90), (3, 75), (4, 50), (5, 30)
+]
+df_funnel = spark.createDataFrame(data=funnel_data, schema=funnel_schema)
+
+df_funnel = df_funnel.withColumn("pas_proces", 
+    F.when(F.col("level") == 1, 'Total Prescoring')
+     .when(F.col("level") == 2, 'Aprobate Prescoring')
+     .when(F.col("level") == 3, 'Conversie Cereri')
+     .when(F.col("level") == 4, 'Aprobate Cereri')
+     .when(F.col("level") == 5, 'Disbursate')
+)
+df_funnel = df_funnel.withColumn("value", 
+    F.when(F.col("level") == 1, F.lit(float(presc_total or 0)))
+     .when(F.col("level") == 2, F.lit(float(aprob_presc or 0)))
+     .when(F.col("level") == 3, F.lit(float(conversie_cereri or 0)))
+     .when(F.col("level") == 4, F.lit(float(aprob_comm or 0)))
+     .when(F.col("level") == 5, F.lit(float(disbursate or 0)))
+)
+df_funnel = df_funnel.withColumn("perc_value", 
+    F.when(F.col("level") == 1, F.format_string("%.2f%%", F.lit(float(perc_presc_total or 0)) * 100))
+     .when(F.col("level") == 2, F.format_string("%.2f%%", F.lit(float(perc_aprob_presc or 0)) * 100))
+     .when(F.col("level") == 3, F.format_string("%.2f%%", F.lit(float(perc_conversie_cereri or 0)) * 100))
+     .when(F.col("level") == 4, F.format_string("%.2f%%", F.lit(float(perc_aprob_comm or 0)) * 100))
+     .when(F.col("level") == 5, F.format_string("%.2f%%", F.lit(float(perc_disbursate or 0)) * 100))
+)
+df_funnel = df_funnel.withColumn("value_E2E", 
+    F.when(F.col("level") == 1, F.lit(float(presc_total_E2E or 0)))
+     .when(F.col("level") == 2, F.lit(float(aprob_presc_E2E or 0)))
+     .when(F.col("level") == 3, F.lit(float(conversie_cereri_E2E or 0)))
+     .when(F.col("level") == 4, F.lit(float(aprob_comm_E2E or 0)))
+     .when(F.col("level") == 5, F.lit(float(disbursate_E2E or 0)))
+)
+df_funnel = df_funnel.withColumn("perc_value_E2E", 
+    F.when(F.col("level") == 1, F.format_string("%.2f%%", F.lit(float(perc_presc_total_E2E or 0)) * 100))
+     .when(F.col("level") == 2, F.format_string("%.2f%%", F.lit(float(perc_aprob_presc_E2E or 0)) * 100))
+     .when(F.col("level") == 3, F.format_string("%.2f%%", F.lit(float(perc_conversie_cereri_E2E or 0)) * 100))
+     .when(F.col("level") == 4, F.format_string("%.2f%%", F.lit(float(perc_aprob_comm_E2E or 0)) * 100))
+     .when(F.col("level") == 5, F.format_string("%.2f%%", F.lit(float(perc_disbursate_E2E or 0)) * 100))
+)
+df_funnel = df_funnel.withColumn("value_Lead", 
+    F.when(F.col("level") == 1, F.lit(float(presc_total_lead or 0)))
+     .when(F.col("level") == 2, F.lit(float(aprob_presc_lead or 0)))
+     .when(F.col("level") == 3, F.lit(float(conversie_cereri_lead or 0)))
+     .when(F.col("level") == 4, F.lit(float(aprob_comm_lead or 0)))
+     .when(F.col("level") == 5, F.lit(float(disbursate_lead or 0)))
+)
+df_funnel = df_funnel.withColumn("perc_value_Lead", 
+    F.when(F.col("level") == 1, F.format_string("%.2f%%", F.lit(float(perc_presc_total_lead or 0)) * 100))
+     .when(F.col("level") == 2, F.format_string("%.2f%%", F.lit(float(perc_aprob_presc_lead or 0)) * 100))
+     .when(F.col("level") == 3, F.format_string("%.2f%%", F.lit(float(perc_conversie_cereri_lead or 0)) * 100))
+     .when(F.col("level") == 4, F.format_string("%.2f%%", F.lit(float(perc_aprob_comm_lead or 0)) * 100))
+     .when(F.col("level") == 5, F.format_string("%.2f%%", F.lit(float(perc_disbursate_lead or 0)) * 100))
+)
+df_funnel = df_funnel.withColumn("display_value", F.concat_ws('=>', F.col('pas_proces'), F.col('value'), F.col('perc_value')))
+df_funnel = df_funnel.withColumn("display_value_E2E", F.concat_ws('=>', F.col('pas_proces'), F.col('value_E2E'), F.col('perc_value_E2E')))
+df_funnel = df_funnel.withColumn("display_value_Lead", F.concat_ws('=>', F.col('pas_proces'), F.col('value_Lead'), F.col('perc_value_Lead')))
+df_funnel = df_funnel.withColumn("low", 50 - F.col("check_values") / 2)
+df_funnel = df_funnel.withColumn("high", 50 + F.col("check_values") / 2)
+df_funnel = df_funnel.withColumn("mid", F.lit(50))
+
+df_funnel2 = df_funnel.orderBy(F.col("value").desc())
+
+funnel2_list = df_funnel2.collect()
+funnel3_data = []
+thk = 0.48
+off = 0.25
+prevLow = None
+prevHigh = None
+prevLevel = None
+prevValue = None
+
+for i, row in enumerate(funnel2_list):
+    if i == 0:
+        prevLow = row['low']
+        prevHigh = row['high']
+        prevLevel = row['Level']
+        prevValue = row['check_values']
+        
+        funnel3_data.append({'id': row['Level'], 'val': row['check_values'], 'yval': row['Level'] - off, 'x': prevLow, 'y': row['Level'] - thk, 'display_value': row['display_value']})
+        funnel3_data.append({'id': row['Level'], 'val': row['check_values'], 'yval': row['Level'] - off, 'x': prevHigh, 'y': row['Level'] - thk, 'display_value': row['display_value']})
+    else:
+        funnel3_data.append({'id': prevLevel, 'val': prevValue, 'yval': prevLevel - off, 'x': row['high'], 'y': prevLevel + thk, 'display_value': funnel2_list[i-1]['display_value']})
+        funnel3_data.append({'id': prevLevel, 'val': prevValue, 'yval': prevLevel - off, 'x': row['low'], 'y': prevLevel + thk, 'display_value': funnel2_list[i-1]['display_value']})
+
+        funnel3_data.append({'id': row['Level'], 'val': row['check_values'], 'yval': row['Level'] - off, 'x': row['low'], 'y': row['Level'] - thk, 'display_value': row['display_value']})
+        funnel3_data.append({'id': row['Level'], 'val': row['check_values'], 'yval': row['Level'] - off, 'x': row['high'], 'y': row['Level'] - thk, 'display_value': row['display_value']})
+
+        prevLow = row['low']
+        prevHigh = row['high']
+        prevLevel = row['Level']
+        prevValue = row['check_values']
+
+    if i == len(funnel2_list) - 1:
+        funnel3_data.append({'id': prevLevel, 'val': prevValue, 'yval': prevLevel - off, 'x': prevHigh, 'y': prevLevel + thk, 'display_value': row['display_value']})
+        funnel3_data.append({'id': prevLevel, 'val': prevValue, 'yval': prevLevel - off, 'x': prevLow, 'y': prevLevel + thk, 'display_value': row['display_value']})
+
+df_funnel3 = spark.createDataFrame(funnel3_data)
+
+rangeMap_schema = StructType([
+    StructField("id", StringType(), True), StructField("min", IntegerType(), True),
+    StructField("max", IntegerType(), True), StructField("colormodel2", StringType(), True),
+    StructField("colormodel1", StringType(), True)
+])
+rangeMap_data = [('a', 0, 100, 'LightBlue', 'DarkBlue')]
+df_rangeMap = spark.createDataFrame(data=rangeMap_data, schema=rangeMap_schema)
+
+funnel_E2E_schema = StructType([
+    StructField("Level", IntegerType(), True), StructField("check_values", IntegerType(), True)
+])
+funnel_E2E_data = [
+    (1, 100), (2, 90), (3, 75), (4, 50), (5, 30), (6, 10)
+]
+df_funnel_E2E = spark.createDataFrame(data=funnel_E2E_data, schema=funnel_E2E_schema)
+
+df_funnel_E2E = df_funnel_E2E.withColumn("pas_proces", 
+    F.when(F.col("level") == 1, 'Total Prescoring')
+     .when(F.col("level") == 2, 'Aprobate Prescoring')
+     .when(F.col("level") == 3, 'Conversie Cereri')
+     .when(F.col("level") == 4, 'Aprobate Cereri')
+     .when(F.col("level") == 5, 'Disbursate')
+     .when(F.col("level") == 6, 'Disbursate same day')
+)
+df_funnel_E2E = df_funnel_E2E.withColumn("value_E2E", 
+    F.when(F.col("level") == 1, F.lit(float(presc_total_E2E or 0)))
+     .when(F.col("level") == 2, F.lit(float(aprob_presc_E2E or 0)))
+     .when(F.col("level") == 3, F.lit(float(conversie_cereri_E2E or 0)))
+     .when(F.col("level") == 4, F.lit(float(aprob_comm_E2E or 0)))
+     .when(F.col("level") == 5, F.lit(float(disbursate_E2E or 0)))
+     .when(F.col("level") == 6, F.lit(float(disbursate_zi_pe_zi_E2E or 0)))
+)
+df_funnel_E2E = df_funnel_E2E.withColumn("perc_value_E2E", 
+    F.when(F.col("level") == 1, F.format_string("%.2f%%", F.lit(float(perc_presc_total_E2E or 0)) * 100))
+     .when(F.col("level") == 2, F.format_string("%.2f%%", F.lit(float(perc_aprob_presc_E2E or 0)) * 100))
+     .when(F.col("level") == 3, F.format_string("%.2f%%", F.lit(float(perc_conversie_cereri_E2E or 0)) * 100))
+     .when(F.col("level") == 4, F.format_string("%.2f%%", F.lit(float(perc_aprob_comm_E2E or 0)) * 100))
+     .when(F.col("level") == 5, F.format_string("%.2f%%", F.lit(float(perc_disbursate_E2E or 0)) * 100))
+     .when(F.col("level") == 6, F.format_string("%.2f%%", F.lit(float(perc_disbursate_zi_pe_zi_E2E or 0)) * 100))
+)
+df_funnel_E2E = df_funnel_E2E.withColumn("value_E2E_all", 
+    F.when(F.col("level") == 1, F.lit(float(presc_total_E2E_all or 0)))
+     .when(F.col("level") == 2, F.lit(float(aprob_presc_E2E_all or 0)))
+     .when(F.col("level") == 3, F.lit(float(conversie_cereri_E2E_all or 0)))
+     .when(F.col("level") == 4, F.lit(float(aprob_comm_E2E_all or 0)))
+     .when(F.col("level") == 5, F.lit(float(disbursate_E2E_all or 0)))
+     .when(F.col("level") == 6, F.lit(float(disbursate_zi_pe_zi_E2E_all or 0)))
+)
+df_funnel_E2E = df_funnel_E2E.withColumn("perc_value_E2E_all", 
+    F.when(F.col("level") == 1, F.format_string("%.2f%%", F.lit(float(perc_presc_total_E2E_all or 0)) * 100))
+     .when(F.col("level") == 2, F.format_string("%.2f%%", F.lit(float(perc_aprob_presc_E2E_all or 0)) * 100))
+     .when(F.col("level") == 3, F.format_string("%.2f%%", F.lit(float(perc_conversie_cereri_E2E_all or 0)) * 100))
+     .when(F.col("level") == 4, F.format_string("%.2f%%", F.lit(float(perc_aprob_comm_E2E_all or 0)) * 100))
+     .when(F.col("level") == 5, F.format_string("%.2f%%", F.lit(float(perc_disbursate_E2E_all or 0)) * 100))
+     .when(F.col("level") == 6, F.format_string("%.2f%%", F.lit(float(perc_disbursate_zi_pe_zi_E2E_all or 0)) * 100))
+)
+df_funnel_E2E = df_funnel_E2E.withColumn("display_value_E2E", F.concat_ws('=>', F.col('pas_proces'), F.col('value_E2E'), F.col('perc_value_E2E')))
+df_funnel_E2E = df_funnel_E2E.withColumn("display_value_E2E_all", F.concat_ws('=>', F.col('pas_proces'), F.col('value_E2E_all'), F.col('perc_value_E2E_all')))
+df_funnel_E2E = df_funnel_E2E.withColumn("low", 50 - F.col("check_values") / 2)
+df_funnel_E2E = df_funnel_E2E.withColumn("high", 50 + F.col("check_values") / 2)
+df_funnel_E2E = df_funnel_E2E.withColumn("mid", F.lit(50))
+
+df_funnel2_E2E = df_funnel_E2E.orderBy(F.col("value_E2E").desc())
+
+funnel2_E2E_list = df_funnel2_E2E.collect()
+funnel3_E2E_data = []
+prevLow = None
+prevHigh = None
+prevLevel = None
+prevValue = None
+
+for i, row in enumerate(funnel2_E2E_list):
+    if i == 0:
+        prevLow = row['low']
+        prevHigh = row['high']
+        prevLevel = row['Level']
+        prevValue = row['check_values']
+        
+        funnel3_E2E_data.append({'id': row['Level'], 'val': row['check_values'], 'yval': row['Level'] - off, 'x': prevLow, 'y': row['Level'] - thk, 'display_value_E2E': row['display_value_E2E']})
+        funnel3_E2E_data.append({'id': row['Level'], 'val': row['check_values'], 'yval': row['Level'] - off, 'x': prevHigh, 'y': row['Level'] - thk, 'display_value_E2E': row['display_value_E2E']})
+    else:
+        funnel3_E2E_data.append({'id': prevLevel, 'val': prevValue, 'yval': prevLevel - off, 'x': row['high'], 'y': prevLevel + thk, 'display_value_E2E': funnel2_E2E_list[i-1]['display_value_E2E']})
+        funnel3_E2E_data.append({'id': prevLevel, 'val': prevValue, 'yval': prevLevel - off, 'x': row['low'], 'y': prevLevel + thk, 'display_value_E2E': funnel2_E2E_list[i-1]['display_value_E2E']})
+
+        funnel3_E2E_data.append({'id': row['Level'], 'val': row['check_values'], 'yval': row['Level'] - off, 'x': row['low'], 'y': row['Level'] - thk, 'display_value_E2E': row['display_value_E2E']})
+        funnel3_E2E_data.append({'id': row['Level'], 'val': row['check_values'], 'yval': row['Level'] - off, 'x': row['high'], 'y': row['Level'] - thk, 'display_value_E2E': row['display_value_E2E']})
+
+        prevLow = row['low']
+        prevHigh = row['high']
+        prevLevel = row['Level']
+        prevValue = row['check_values']
+
+    if i == len(funnel2_E2E_list) - 1:
+        funnel3_E2E_data.append({'id': prevLevel, 'val': prevValue, 'yval': prevLevel - off, 'x': prevHigh, 'y': prevLevel + thk, 'display_value_E2E': row['display_value_E2E']})
+        funnel3_E2E_data.append({'id': prevLevel, 'val': prevValue, 'yval': prevLevel - off, 'x': prevLow, 'y': prevLevel + thk, 'display_value_E2E': row['display_value_E2E']})
+
+df_funnel3_E2E = spark.createDataFrame(funnel3_E2E_data)
+
+rangeMap2_data = [('a', 0, 100, 'LightOrange', 'DarkOrange')]
+df_rangeMap2 = spark.createDataFrame(data=rangeMap2_data, schema=rangeMap_schema)
+
+df_funnel2_Lead = df_funnel.orderBy(F.col("value_Lead").desc())
+
+funnel2_Lead_list = df_funnel2_Lead.collect()
+funnel3_Lead_data = []
+prevLow = None
+prevHigh = None
+prevLevel = None
+prevValue = None
+
+for i, row in enumerate(funnel2_Lead_list):
+    if i == 0:
+        prevLow = row['low']
+        prevHigh = row['high']
+        prevLevel = row['Level']
+        prevValue = row['check_values']
+        
+        funnel3_Lead_data.append({'id': row['Level'], 'val': row['check_values'], 'yval': row['Level'] - off, 'x': prevLow, 'y': row['Level'] - thk, 'display_value_Lead': row['display_value_Lead']})
+        funnel3_Lead_data.append({'id': row['Level'], 'val': row['check_values'], 'yval': row['Level'] - off, 'x': prevHigh, 'y': row['Level'] - thk, 'display_value_Lead': row['display_value_Lead']})
+    else:
+        funnel3_Lead_data.append({'id': prevLevel, 'val': prevValue, 'yval': prevLevel - off, 'x': row['high'], 'y': prevLevel + thk, 'display_value_Lead': funnel2_Lead_list[i-1]['display_value_Lead']})
+        funnel3_Lead_data.append({'id': prevLevel, 'val': prevValue, 'yval': prevLevel - off, 'x': row['low'], 'y': prevLevel + thk, 'display_value_Lead': funnel2_Lead_list[i-1]['display_value_Lead']})
+
+        funnel3_Lead_data.append({'id': row['Level'], 'val': row['check_values'], 'yval': row['Level'] - off, 'x': row['low'], 'y': row['Level'] - thk, 'display_value_Lead': row['display_value_Lead']})
+        funnel3_Lead_data.append({'id': row['Level'], 'val': row['check_values'], 'yval': row['Level'] - off, 'x': row['high'], 'y': row['Level'] - thk, 'display_value_Lead': row['display_value_Lead']})
+
+        prevLow = row['low']
+        prevHigh = row['high']
+        prevLevel = row['Level']
+        prevValue = row['check_values']
+
+    if i == len(funnel2_Lead_list) - 1:
+        funnel3_Lead_data.append({'id': prevLevel, 'val': prevValue, 'yval': prevLevel - off, 'x': prevHigh, 'y': prevLevel + thk, 'display_value_Lead': row['display_value_Lead']})
+        funnel3_Lead_data.append({'id': prevLevel, 'val': prevValue, 'yval': prevLevel - off, 'x': prevLow, 'y': prevLevel + thk, 'display_value_Lead': row['display_value_Lead']})
+
+df_funnel3_Lead = spark.createDataFrame(funnel3_Lead_data)
+
+rangeMap3_data = [('a', 0, 100, 'LightGreen', 'DarkGreen')]
+df_rangeMap3 = spark.createDataFrame(data=rangeMap3_data, schema=rangeMap_schema)
+
+df_funnel2_E2E_all = df_funnel_E2E.orderBy(F.col("value_E2E_all").desc())
+
+funnel2_E2E_all_list = df_funnel2_E2E_all.collect()
+funnel3_E2E_all_data = []
+prevLow = None
+prevHigh = None
+prevLevel = None
+prevValue = None
+
+for i, row in enumerate(funnel2_E2E_all_list):
+    if i == 0:
+        prevLow = row['low']
+        prevHigh = row['high']
+        prevLevel = row['Level']
+        prevValue = row['check_values']
+        
+        funnel3_E2E_all_data.append({'id': row['Level'], 'val': row['check_values'], 'yval': row['Level'] - off, 'x': prevLow, 'y': row['Level'] - thk, 'display_value_E2E_all': row['display_value_E2E_all']})
+        funnel3_E2E_all_data.append({'id': row['Level'], 'val': row['check_values'], 'yval': row['Level'] - off, 'x': prevHigh, 'y': row['Level'] - thk, 'display_value_E2E_all': row['display_value_E2E_all']})
+    else:
+        funnel3_E2E_all_data.append({'id': prevLevel, 'val': prevValue, 'yval': prevLevel - off, 'x': row['high'], 'y': prevLevel + thk, 'display_value_E2E_all': funnel2_E2E_all_list[i-1]['display_value_E2E_all']})
+        funnel3_E2E_all_data.append({'id': prevLevel, 'val': prevValue, 'yval': prevLevel - off, 'x': row['low'], 'y': prevLevel + thk, 'display_value_E2E_all': funnel2_E2E_all_list[i-1]['display_value_E2E_all']})
+
+        funnel3_E2E_all_data.append({'id': row['Level'], 'val': row['check_values'], 'yval': row['Level'] - off, 'x': row['low'], 'y': row['Level'] - thk, 'display_value_E2E_all': row['display_value_E2E_all']})
+        funnel3_E2E_all_data.append({'id': row['Level'], 'val': row['check_values'], 'yval': row['Level'] - off, 'x': row['high'], 'y': row['Level'] - thk, 'display_value_E2E_all': row['display_value_E2E_all']})
+
+        prevLow = row['low']
+        prevHigh = row['high']
+        prevLevel = row['Level']
+        prevValue = row['check_values']
+
+    if i == len(funnel2_E2E_all_list) - 1:
+        funnel3_E2E_all_data.append({'id': prevLevel, 'val': prevValue, 'yval': prevLevel - off, 'x': prevHigh, 'y': prevLevel + thk, 'display_value_E2E_all': row['display_value_E2E_all']})
+        funnel3_E2E_all_data.append({'id': prevLevel, 'val': prevValue, 'yval': prevLevel - off, 'x': prevLow, 'y': prevLevel + thk, 'display_value_E2E_all': row['display_value_E2E_all']})
+
+df_funnel3_E2E_all = spark.createDataFrame(funnel3_E2E_all_data)
+
+rangeMap4_data = [('a', 0, 100, 'LightYellow', 'DarkYellow')]
+df_rangeMap4 = spark.createDataFrame(data=rangeMap4_data, schema=rangeMap_schema)
+
+html_body = f"""
+<html>
+<body>
+<p>Buna ziua,</p>
+<p>Am inserat mai jos reprezentarea grafica a evolutiei cererilor WWW pe flux ( prescoring=>disbursare)</p>
+<p>Multumesc,</p>
+<p><b>Funnel WWW Lead evolutie Prescoring=>Disbursate {start_month}->{data_crt}</b></p>
+<img src=cid:sgplot3>
+<p><b>Funnel WWW E2E evolutie Prescoring=>Disbursate {start_month}->{data_crt}</b></p>
+<img src=cid:sgplot2>
+<p><b>*Din {presc_total_E2E} prescoringuri marcate ca si E2E, {cereri_E2E_transformabile_crt} cereri se pot transforma in Lead(se afla in prospective sau committed)</b></p>
+<p><b>Funnel WWW E2E de la inceput proiect evolutie Prescoring=>Disbursate 01Feb19->{data_crt}</b></p>
+<img src=cid:sgplot4>
+<p><b>*Din {presc_total_E2E_all} prescoringuri marcate ca si E2E,{cereri_E2E_transformabile_all} cereri se pot transforma in Lead(se afla in prospective sau committed)</b></p>
+<p><b>Considerente avute in calcul:</b></p>
+<p><b>->Toate prescoringurile initiate incepand cu 01Feb2019(data start flux wwwE2E) se considera a fi asimilate fluxului E2E, mai putin cele in care pe flux intervine un alt user(branch,DSA) decat www, acestea fiind asimilate fluxului Lead</b></p>
+<p>->Monitorizare flux Lead: Toate prescoringurile initiate de www si pentru care un alt user intern(branch,dsa) a intervenit pe flux, cu monitorizarea acestora pe flux pana la disbursare</p>
+<p>->Monitorizare flux E2E: Toate prescoringurile initiate de www si pentru care nu a intervenit pe flux un alt user intern(branch,dsa), cu monitorizarea acestora pe flux pana la disbursare</p>
+</body>
+</html>
+"""
+
+# The following block would use Python's smtplib and email libraries to send the email with the generated HTML body and attached images.
+# This typically requires SMTP server configuration and is environment-specific.
+# For demonstration, the HTML content is printed.
+print(html_body)
+#End-DBShift

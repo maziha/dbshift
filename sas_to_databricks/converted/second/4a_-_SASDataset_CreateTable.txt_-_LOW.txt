@@ -1,0 +1,256 @@
+import pyspark.sql.functions as F
+from pyspark.sql import SparkSession
+from pyspark.sql.window import Window
+import os
+
+# It is assumed that the SparkSession and JDBC connection properties are initialized.
+# For demonstration, placeholders are used.
+spark = SparkSession.builder.appName("SASDatasets_Conversion").getOrCreate()
+
+# --- Placeholder for JDBC connection properties ---
+# These would be configured securely in a production environment (e.g., using Databricks secrets)
+jdbc_url = "jdbc:teradata://your_teradata_host/database"
+jdbc_user = "your_username"
+jdbc_password = "your_password"
+jdbc_driver = "com.teradata.jdbc.TeraDriver"
+
+connection_properties = {
+    "user": jdbc_user,
+    "password": jdbc_password,
+    "driver": jdbc_driver
+}
+
+# --- Placeholder for Macro Variables passed into the script ---
+# In a real scenario, these would be passed as arguments or defined via widgets.
+L6_id = "some_L6_id"  # Example value
+MinDt_SAS = "01JAN2023" # Example value
+MinDT = "2023-01-01"  # Example value
+MaxDT = "2023-12-31"  # Example value
+
+
+# --- Translate `proc sql` to get holiday_dv ---
+sql_query_holiday = """
+select trim(columnname) as columnname
+from dbc.columns
+where  tablename = 'HolidayCalendar               ' 
+and columnname not in ('DAY_DT', 'JulyFourWKND','JulyFive','JulyTwo','JulyOne', 'FatTues')
+and databasename = 'DL_CNTL_ADVA                  '
+order by columnid
+"""
+df_holiday_cols = spark.read.format("jdbc").option("url", jdbc_url).option("dbtable", f"({sql_query_holiday}) as t").options(**connection_properties).load()
+holiday_dv_list = [row.columnname for row in df_holiday_cols.collect()]
+holiday_dv = ",".join(holiday_dv_list)
+
+print(holiday_dv)
+
+# --- Translate `proc sql` to get dates_dv ---
+sql_query_dates = """
+select trim(columnname) as columnname
+from dbc.columns
+where  tablename = 'dates                         ' 
+and columnname <> 'DAY_DT'
+and databasename = 'DL_CNTL_ADVA                  '
+order by columnid
+"""
+df_dates_cols = spark.read.format("jdbc").option("url", jdbc_url).option("dbtable", f"({sql_query_dates}) as t").options(**connection_properties).load()
+dates_dv_list = [row.columnname for row in df_dates_cols.collect()]
+dates_dv = ",".join(dates_dv_list)
+
+print(dates_dv)
+
+# --- Translate `%LET` statements ---
+model_var = """
+		a.ut_id, a.p_id, a.day_dt, a.mjr_p_cls_id, p_sold_first_dt, p_sold_last_dt,
+		p_sell_dur, mkt_bskt_ut_qt, p_bse_pr_am, p_promo_pr_am, atl_p_sold_am, ntl_log_mkt_bskt_ut_qt, ntl_log_bse_pr_am,
+		ntl_log_bse_dct_pr_am, ntl_log_bse_promo_dct_pr_am, 
+		cast(adv_circ_flg as smallint) as  adv_circ_flg,
+		cast(adv_mid_wk_flg as smallint) as  adv_mid_wk_flg,
+		cast(adv_super_evnt_flg as smallint) as  adv_super_evnt_flg,
+		cast(adv_dgtl_circ_flg as smallint) as  adv_dgtl_circ_flg,
+		cast(unadv_flg as smallint) as  unadv_flg,
+		cast(pr_drop_flg as smallint) as  pr_drop_flg,
+		cast(p_ten_for_ten_flg as smallint) as  p_ten_for_ten_flg,
+		ut_same_sto_flg, atl_min_temp_val,
+		atl_mean_temp_val, atl_max_temp_val, atl_t_ppt_qt, atl_t_snow_qt,
+		day_bef_ppt_temp_val, day_bef_snow_temp_val, day_aft_ppt_temp_val,
+		day_aft_snow_temp_val
+"""
+
+model_var2 = """
+		a.ut_id, a.p_id, a.day_dt, a.mjr_p_cls_id, 
+		coalesce(a.p_sold_first_dt,c.p_sold_first_dt) as p_sold_first_dt , 
+		coalesce(a.p_sold_last_dt,c.p_sold_last_dt) as p_sold_last_dt , 
+		p_sell_dur, mkt_bskt_ut_qt, p_bse_pr_am, p_promo_pr_am, atl_p_sold_am, ntl_log_mkt_bskt_ut_qt, ntl_log_bse_pr_am,
+		ntl_log_bse_dct_pr_am, ntl_log_bse_promo_dct_pr_am, 
+		cast(adv_circ_flg as smallint) as  adv_circ_flg,
+		cast(adv_mid_wk_flg as smallint) as  adv_mid_wk_flg,
+		cast(adv_super_evnt_flg as smallint) as  adv_super_evnt_flg,
+		cast(adv_dgtl_circ_flg as smallint) as  adv_dgtl_circ_flg,
+		cast(unadv_flg as smallint) as  unadv_flg,
+		cast(pr_drop_flg as smallint) as  pr_drop_flg,
+		cast(p_ten_for_ten_flg as smallint) as  p_ten_for_ten_flg,
+		ut_same_sto_flg, atl_min_temp_val,
+		atl_mean_temp_val, atl_max_temp_val, atl_t_ppt_qt, atl_t_snow_qt,
+		day_bef_ppt_temp_val, day_bef_snow_temp_val, day_aft_ppt_temp_val,
+		day_aft_snow_temp_val
+"""
+
+def pids_model_sales(L6, min_dt, MinDt_TD, MaxDt_TD):
+    
+    # --- Translate `proc sql` to get L2 info ---
+    sql_query_l2 = f"""
+    sel mjr_p_cls_id, L2, count(distinct mjr_p_cls_id) as nL2
+    from dl_cntl_adva.fcst_p_upc_inf
+    where mjr_mds_are_id = {L6}
+    group by 1, 2
+    order by L2 desc
+    """
+    df_l2_info = spark.read.format("jdbc").option("url", jdbc_url).option("dbtable", f"({sql_query_l2}) as t").options(**connection_properties).load()
+    l2_rows = df_l2_info.collect()
+    nL2 = len(l2_rows)
+
+    j = 0
+    for row in l2_rows:
+        j += 1
+        L2_id = row['mjr_p_cls_id']
+        string2 = row['L2']
+        
+        print(j)
+        print(string2)
+
+        # The `proc printto` statement is for logging side-effects and is not directly translated.
+
+        # --- Get count for MJR_P_CLS_HL_P_CNT ---
+        sql_query_cnt = f"""
+        select count(*) as cnt from dl_cntl_adva.MJR_P_CLS_HL_P_CNT where mjr_p_cls_id = '{L2_id}'
+        """
+        df_cnt = spark.read.format("jdbc").option("url", jdbc_url).option("dbtable", f"({sql_query_cnt}) as t").options(**connection_properties).load()
+        cnt = df_cnt.collect()[0]['cnt']
+        print(cnt)
+
+        # --- Check if target table and 'hl_cap' column exist ---
+        table_name = f"promo.pid_{string2}"
+        exist = 0
+        if spark.catalog.tableExists(table_name):
+            try:
+                if 'hl_cap' in spark.table(table_name).columns:
+                    exist = 1
+            except Exception as e:
+                # Table might exist in catalog but not be accessible, treat as not existing for this purpose.
+                print(f"Could not inspect columns for {table_name}: {e}")
+                exist = 0
+        print(exist)
+
+        # --- Dynamically build the main SQL query ---
+        shelf_space_cols = ""
+        shelf_space_join = ""
+        
+        # Logic matches the combined SAS %if conditions
+        if (cnt > 0) or (exist > 0):
+            shelf_space_cols = """
+             ,coalesce(HM_LOC_CAP_QT,0) as hl_cap
+             ,coalesce(ENDCAP_CAP_QT,0) as end_cap
+            """
+            shelf_space_join = f"""
+                 left join 
+                 ( select a.* 
+                    from  vprod_mds_rplnm.dly_ut_fcst_hm_loc_cap_hst as a
+                    where day_dt between date '{MinDt_TD}' and date '{MaxDt_TD}'
+                 ) as hl
+                    on a.day_dt = hl.day_dt 
+                    and a.ut_id = hl.ut_id 
+                    and a.p_id = hl.p_id
+            """
+
+        main_sql_query = f"""
+            select {model_var} 
+             ,cast(coalesce(mpk_hook_flg,0) as smallint) as  mpk_hook_flg
+             ,cast(coalesce(mcc_hook_flg,0) as smallint) as  mcc_hook_flg
+             ,cast(coalesce(bucks_hook_flg,0) as smallint) as  bucks_hook_flg
+             ,cast(coalesce(other_hook_flg,0) as smallint) as  other_hook_flg
+             ,cast(coalesce(mpk.mPk_cpn_flg,0) as smallint) as  mPk_cpn_flg
+             {shelf_space_cols}
+             , {dates_dv} , {holiday_dv}
+
+                from 
+                (select {model_var2}
+                    from VPROD_MDS_RPLNM.DLY_UT_P_ANLT_SL_HST   as a 
+                    join 
+                        (select p_id 
+                        from dl_cntl_adva.fcst_p_upc_inf 
+                        where mjr_p_cls_id = '{L2_id}'
+                        group by 1) as b 
+                        on a.p_id = b.p_id 
+
+                        left join dl_cntl_adva.p_sold_first_dt as c 
+                        on a.p_id = c.p_id 
+                        and a.ut_id = c.ut_id
+                        
+                        where day_dt between date '{MinDt_TD}' and date '{MaxDt_TD}'
+                         
+                        ) as a
+
+                /*Add Dates Dummy Variable*/
+                join 
+                ( select * from dl_cntl_adva.dates
+                    where day_dt between date '{MinDt_TD}' and date '{MaxDt_TD}'
+                         
+                ) as d 
+                    on a.day_dt  = d.day_dt 
+
+                /*Add Holiday Dummy Variable*/
+                join
+                ( select * from dl_cntl_adva.HolidayCalendar
+                    where day_dt between date '{MinDt_TD}' and date '{MaxDt_TD}'
+                         
+                ) as hd 
+                    on a.day_dt  = hd.day_dt 
+
+                /*Add Hook Dummy Variable*/
+                left join dl_cntl_adva.fcst_hook_flag2 as hf
+                    on a.day_dt = hf.day_dt 
+                    and a.ut_id = hf.ut_id
+
+                /*Bring in new mPerk flag*/
+                LEFT JOIN dl_cntl_adva.new_mpk_flg AS mpk
+                    ON a.p_id = mpk.p_id
+                    AND a.day_dt = mpk.day_dt
+                
+                /*Add Shelf Space Info*/
+                {shelf_space_join}
+        """
+
+        # Drop temp table before creation
+        spark.sql(f"DROP TABLE IF EXISTS promo.pid_{string2}_temp")
+        
+        # Execute query and create temp DataFrame
+        df_pid_temp = spark.read.format("jdbc").option("url", jdbc_url).option("dbtable", f"({main_sql_query}) as t").options(**connection_properties).load()
+
+        target_table_exists = spark.catalog.tableExists(table_name)
+        
+        if target_table_exists:
+            spark.sql(f"DELETE FROM {table_name} WHERE day_dt >= '{min_dt}'")
+        
+        temp_table_created = False
+        if not df_pid_temp.rdd.isEmpty():
+            df_pid_temp.write.format("delta").mode("overwrite").saveAsTable(f"promo.pid_{string2}_temp")
+            temp_table_created = True
+
+        if temp_table_created:
+            if target_table_exists:
+                # Append to existing table
+                df_temp_to_append = spark.table(f"promo.pid_{string2}_temp")
+                df_temp_to_append.write.format("delta").mode("append").saveAsTable(table_name)
+            else:
+                # Create new table from temp
+                df_temp_to_create = spark.table(f"promo.pid_{string2}_temp")
+                df_temp_to_create.write.format("delta").mode("overwrite").saveAsTable(table_name)
+
+        if temp_table_created:
+            spark.sql(f"DROP TABLE IF EXISTS promo.pid_{string2}_temp")
+
+
+# --- Call the main function ---
+pids_model_sales(L6=L6_id, min_dt=MinDt_SAS, MinDt_TD=MinDT, MaxDt_TD=MaxDT)
+
+#End-DBShift

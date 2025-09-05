@@ -1,0 +1,405 @@
+import pyspark.sql.functions as F
+from pyspark.sql import SparkSession
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, DateType
+import datetime
+import sys
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+spark = SparkSession.builder.appName("SAS_to_PySpark_Conversion").getOrCreate()
+
+# %run commands are placeholders for executing other Databricks notebooks.
+# The paths should be updated to reflect the actual locations in the Databricks workspace.
+
+# %INCLUDE has been translated to %run
+# The path provided is an example and should be updated.
+# %run '\\us.meijer.com\mjrdata\SASProd\SASProjects\salesforecast\SASProgram\FinalSASPrograms\Autoexec_test.sas'
+get_ipython().run_line_magic('run', '"/Workspace/salesforecast/SASProgram/FinalSASPrograms/Autoexec_test"')
+
+FCST_V1 = None
+PRODTEST = "PROD"
+FCST_V1 = "/dbfs/mjrdata/SASProd/SASProjects/salesforecast/1_DemandForecast_Production/SASProgram"
+# filename FCSTCode "&FCST_V1." ; is handled by using the FCST_V1 variable directly
+
+fcst_log = None
+fcst_log = "/dbfs/mjrdata/Sdrive/ShopperMarketing/Analytics/Staff Folders/Aldijana Lelak Avdic/Corp Ad Hoc/SalesForecast/SASLog"
+
+fcst_coef = None
+fcst_coef = "/dbfs/mjrdata/SASProd/SASProjects/salesforecast/1_DemandForecast_Production/ModelCoef"
+
+pred_promo = None
+pred_promo = "/dbfs/mjrdata/SASProd/SASProjects/salesforecast/1_DemandForecast_Production/ModelPredPromo"
+
+pred_base = None
+pred_base = "/dbfs/mjrdata/SASProd/SASProjects/salesforecast/1_DemandForecast_Production/ModelPredBase"
+
+fcst = None
+fcst = "/dbfs/mjrdata/Sdrive/ShopperMarketing/Analytics/Staff Folders/Aldijana Lelak Avdic/Corp Ad Hoc/SalesForecast/ModelPredBase"
+
+fcst_promo = None
+fcst_promo = "/dbfs/mjrdata/Sdrive/ShopperMarketing/Analytics/Staff Folders/Aldijana Lelak Avdic/Corp Ad Hoc/SalesForecast/ModelPredPromo"
+
+eval_path = None
+eval_path = "/dbfs/mjrdata/SASProd/SASProjects/salesforecast/1_DemandForecast_Production/Eval"
+
+archive = None
+archive = "/dbfs/mjrdata/Sdrive/ShopperMarketing/Analytics/Staff Folders/Aldijana Lelak Avdic/Corp Ad Hoc/SalesForecast/ADM/Archive/Model Coeff"
+
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/FolderSetup_SAS2"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/DTStamp"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/GetFileList"')
+
+def dtstamp(message="", set=None):
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if set == 'Y':
+        print(f"DTSTAMP Initialized at {timestamp}")
+    else:
+        print(f"DTSTAMP: {message} at {timestamp}")
+
+dtstamp(set='Y')
+
+# Grid service and autosignon are not applicable in Databricks/Spark
+# The logic from FCSTEnvironment.sas is included at the top level of this script.
+# This includes the following %run calls.
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/FolderSetup_SAS2"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/DTStamp"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/CalcError"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/GetFileList"')
+
+Forecast = "N"
+Update = "Y"
+Train = "N"
+Score = "Y"
+
+# Connection properties for Teradata. Replace placeholders with actual values.
+# These would typically be managed via Databricks secrets.
+jdbc_url = "jdbc:teradata://your_teradata_host/database"
+connection_properties = {
+    "user": "your_username",
+    "password": "your_password",
+    "driver": "com.teradata.jdbc.TeraDriver"
+}
+
+# The subquery on fcst_update_dtinf is not used in the where clause,
+# but is kept to maintain 1:1 translation of the original SQL.
+sql_query_dateinf = """
+(SELECT min(day_dt) as startDate, max(day_dt) as endDate ,count(distinct wk_end_dt) as nweeks
+FROM vprod_dim.dt_inf as a ,
+     (select max(endDate) as max_dt from fcst_update_dtinf) as b
+where a.day_dt between '20150101' and '20220319') AS dateinf_query
+"""
+
+df_dateinf = spark.read \
+    .format("jdbc") \
+    .option("url", jdbc_url) \
+    .option("dbtable", sql_query_dateinf) \
+    .options(**connection_properties) \
+    .load()
+
+# The format statement in SAS is for display purposes. Spark dataframes retain the date type.
+# df_dateinf = df_dateinf
+
+dateinf_row = df_dateinf.collect()[0]
+FirstPreWeek = dateinf_row['startDate']
+LastPreWeek = dateinf_row['endDate']
+nweeks = dateinf_row['nweeks']
+
+df_fcst_update_dtinf = spark.table("adva.fcst_update_dtinf")
+df_fcst_update_dtinf.createOrReplaceTempView("fcst_update_dtinf")
+
+adva_dates_df = spark.sql("""
+    SELECT
+        MAX(startDate) as max_startDate,
+        MAX(endDate) as max_endDate
+    FROM fcst_update_dtinf
+""")
+adva_dates_row = adva_dates_df.collect()[0]
+
+MinDt = f"'{adva_dates_row['max_startDate'].strftime('%Y-%m-%d')}'"
+MaxDt = f"'{adva_dates_row['max_endDate'].strftime('%Y-%m-%d')}'"
+max_tr_dt = f"'{adva_dates_row['max_endDate'].strftime('%Y%m%d')}'"
+
+print(LastPreWeek)
+print(MinDt)
+print(MaxDt)
+print(max_tr_dt)
+
+# mo_dt = (datetime.now() - datetime.timedelta(days=30)).strftime("'%d%b%Y'").upper() # Equivalent of 30 days ago
+mo_dt = "'31MAR2022'"
+print(mo_dt)
+ValidWeeks = 0
+ValidWks = 0
+ForecastWeeks = 10
+
+# Execute INSERT statement into Teradata
+# A Spark-native way to do this is to create a dataframe and write it.
+df_insert = spark.createDataFrame(
+    [('Update', 'ALL', 'InProgress')],
+    ['PROCESS', 'HIERARCHY', 'STATUS']
+).withColumn("DAY_DT", F.current_date())
+
+df_insert.write \
+    .format("jdbc") \
+    .option("url", jdbc_url) \
+    .option("dbtable", "DL_CNTL_ADVA.MODELPROCESS") \
+    .options(**connection_properties) \
+    .mode("append") \
+    .save()
+
+# libname shared is not applicable in Databricks.
+# The proc printto is for logging, Databricks captures notebook output automatically.
+# Here is a direct translation of the file redirection logic.
+original_stdout = sys.stdout
+log_file_path = "/dbfs/mjrdata/Sdrive/ShopperMarketing/Analytics/Staff Folders/Aldijana Lelak Avdic/Corp Ad Hoc/SalesForecast/SASLog/Update/ModelUpdate.txt"
+sys.stdout = open(log_file_path, 'w')
+
+
+# --- Task 1 ---
+# rsubmit task1: This block would run in parallel in SAS. In Databricks, it runs sequentially.
+L6_id = "'L6-000005'"
+Part = 1
+dir_val = "asc"
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Poisson.sas"')
+# get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegPDRg.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/BkwrdReg_SPD.sas"')
+# get_ipython().run_line_magic('run', 'f"{FCST_V1}/Reg_PDR.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Reg_PW.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegScale.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RALSO_PL.sas"')
+# get_ipython().run_line_magic('run', 'f"{FCST_V1}/ZIP_NSM.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Poisson_ZIP.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegPromo.sas"')
+dtstamp(f"End Poisson1 {L6_id}")
+
+# --- Task 2 ---
+# rsubmit task2
+L6_id = "'L6-000005'"
+Part = 2
+dir_val = "desc"
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Poisson.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RALSO_PL.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RandomForest.sas"')
+# get_ipython().run_line_magic('run', 'f"{FCST_V1}/ZIP_NSM.sas"')
+# get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegPDRg.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Poisson_ZIP.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegAct.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/ElasticN.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RForestW.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegScale.sas"')
+dtstamp(f"End Poisson1 {L6_id}")
+
+# --- Task 3 ---
+# rsubmit task3
+L6_id = "'L6-000005'"
+Part = 1
+dir_val = "asc"
+# get_ipython().run_line_magic('run', 'f"{FCST_V1}/Reg_PDL.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegMPerk.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RForestW.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/ElasticN.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegSP.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/StepReg_SPD.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Reg_PL.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/StepRegR.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RALSO_RG.sas"')
+dtstamp(f"End Poisson1 {L6_id}")
+
+# --- Task 11 (HBC) ---
+# rsubmit task11
+L6_id = "'L6-000001'"
+Part = 1
+dir_val = "asc"
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegScale.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RALSO_RG.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RForestW.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RALSO_PL.sas"')
+# get_ipython().run_line_magic('run', 'f"{FCST_V1}/ZIP_NSM.sas"')
+# get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegPDRg.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/ElasticN.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Reg_PL.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RandomForest.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Poisson.sas"')
+dtstamp(f"End Poisson1 {L6_id}")
+
+# --- Task 21 (HBC) ---
+# rsubmit task21
+L6_id = "'L6-000001'"
+Part = 2
+dir_val = "desc"
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/StepReg_SPD.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RALSO_PL.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RForestW.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/BkwrdReg_SPD.sas"')
+# get_ipython().run_line_magic('run', 'f"{FCST_V1}/ZIP_NSM.sas"')
+# get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegPDRg.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegAct.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Poisson_ZIP.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Poisson.sas"')
+dtstamp(f"End Poisson1 {L6_id}")
+
+# --- Task 31 (HBC) ---
+# rsubmit task31
+L6_id = "'L6-000001'"
+Part = 1
+dir_val = "desc"
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Reg_PDL.sas"')
+# get_ipython().run_line_magic('run', 'f"{FCST_V1}/Reg_PDR.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Poisson_ZIP.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/ElasticN.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegScale.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegPromo.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegSPD.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegMPerk.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Reg_PL.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegSPD.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegMPerk.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Reg_PW.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegSP.sas"')
+# get_ipython().run_line_magic('run', 'f"{FCST_V1}/StepRegR.sas"')
+dtstamp(f"End Poisson1 {L6_id}")
+
+# --- Task 12 (PETS) ---
+# rsubmit task12
+L6_id = "'L6-000013'"
+Part = 1
+dir_val = "asc"
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Reg_PSW.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegSPD.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegMPerk.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegScale.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/StepRegR.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Reg_PW.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegAct.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RALSO_PL.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Reg_PL.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/StepReg_SPD.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/ElasticN.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Poisson.sas"')
+dtstamp(f"End Poisson1 {L6_id}")
+
+# --- Task 22 (PETS) ---
+# rsubmit task22
+L6_id = "'L6-000013'"
+Part = 2
+dir_val = "desc"
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RForestW.sas"')
+# get_ipython().run_line_magic('run', 'f"{FCST_V1}/ZIP_NSM.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegPDRg.sas"')
+# get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegScale.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RALSO_PL.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Poisson_ZIP.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Poisson.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/ElasticN.sas"')
+dtstamp(f"End Poisson1 {L6_id}")
+
+# --- Task 32 (PETS) ---
+# rsubmit task32
+L6_id = "'L6-000013'"
+Part = 1
+dir_val = "asc"
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegPromo.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegSP.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Reg_PDL.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Poisson_ZIP.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/BkwrdReg_SPD.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RForestW.sas"')
+# get_ipython().run_line_magic('run', 'f"{FCST_V1}/Reg_PDRg.sas"')
+dtstamp(f"End Poisson1 {L6_id}")
+
+# --- Task 13 (FRESH) ---
+# rsubmit task13
+L6_id = "'L6-000014'"
+Part = 1
+dir_val = "asc"
+# get_ipython().run_line_magic('run', 'f"{FCST_V1}/RALSO_RG.sas"')
+# get_ipython().run_line_magic('run', 'f"{FCST_V1}/StepRegR.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegSub.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegSP.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/BkwrdReg_SPD.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Reg_PDL.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Poisson.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Poisson_ZIP.sas"')
+dtstamp(f"End Poisson1 {L6_id}")
+
+# --- Task 23 (FRESH) ---
+# rsubmit task23
+L6_id = "'L6-000014'"
+Part = 2
+dir_val = "asc"
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RALSO_PL.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegPromo.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RegSPD.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Reg_PW.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/ElasticN.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RForestW.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RandomForest.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RForestW.sas"')
+dtstamp(f"End Poisson1 {L6_id}")
+
+# --- Task 33 (FRESH) ---
+# rsubmit task33
+L6_id = "'L6-000014'"
+Part = 2
+dir_val = "asc"
+# get_ipython().run_line_magic('run', 'f"{FCST_V1}/StepReg_SPD.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Poisson.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Poisson_ZIP.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/PSW_ACT.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/Reg_PSW.sas"')
+get_ipython().run_line_magic('run', 'f"{FCST_V1}/RandomForest.sas"')
+dtstamp(f"End Poisson1 {L6_id}")
+
+# The waitfor and signoff commands are specific to SAS parallel processing and are not needed here.
+# The script will proceed to the next step after all the above tasks complete sequentially.
+
+# Close the log file and restore standard output
+sys.stdout.close()
+sys.stdout = original_stdout
+
+# Python equivalent of sending an email
+# NOTE: This requires configuring SMTP details, which should be done securely (e.g., using Databricks secrets).
+try:
+    # Email Configuration
+    smtp_server = "your_smtp_server.meijer.com" # Placeholder
+    smtp_port = 25 # Placeholder
+    sender_email = "Sarah.George@meijer.com"
+    to_emails = ["Sarah.George@meijer.com"]
+    cc_emails = ["Sarah.George@meijer.com"]
+    
+    # Create email body
+    # SAS format ddmmyy10. is dd/mm/yyyy
+    tdate = datetime.datetime.now().strftime("%d/%m/%Y")
+    
+    subject = "Model Update"
+    html_body = f"""
+    <html>
+    <head></head>
+    <body>
+    <p>Hello,</p>
+    <p>Model Updates finished running. Run Model Track to determine progress.</p>
+    <p>Have a Great Day!!!</p>
+    <p>{tdate}</p>
+    </body>
+    </html>
+    """
+    
+    # Create message
+    msg = MIMEMultipart('alternative')
+    msg['From'] = sender_email
+    msg['To'] = ", ".join(to_emails)
+    msg['Cc'] = ", ".join(cc_emails)
+    msg['Subject'] = subject
+    msg.attach(MIMEText(html_body, 'html'))
+    
+    # Send email
+    with smtplib.SMTP(smtp_server, smtp_port) as server:
+        # server.starttls() # Enable if required
+        # server.login(username, password) # Enable if authentication is needed
+        server.sendmail(sender_email, to_emails + cc_emails, msg.as_string())
+    print("Email notification sent successfully.")
+
+except Exception as e:
+    print(f"Failed to send email notification: {e}")
+
+#End-DBShift

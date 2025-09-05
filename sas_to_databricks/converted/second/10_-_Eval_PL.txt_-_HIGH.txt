@@ -1,0 +1,160 @@
+import pyspark.sql.functions as F
+from pyspark.sql.types import StructType, StructField, DoubleType, LongType, DateType
+from pyspark.sql import SparkSession
+from functools import reduce
+from pyspark.sql import DataFrame
+from datetime import datetime
+
+spark = SparkSession.builder.appName("Eval_PL").getOrCreate()
+
+# ROLE: You are an AI model that converts SAS scripts into production-ready Databricks PySpark scripts. Your sole purpose is to perform a direct, 1:1 translation of the provided script.
+# TASK: Convert the provided SAS program into a complete and functional Databricks PySpark script. Adhere to every rule provided below.
+
+# These variables would typically be configured in a Databricks notebook widget or a configuration file.
+ModelType = "Reg_PL"
+type_var = "Reg_PL"  # SAS variable 'type'
+l6_id = "123"  # Example placeholder for SAS macro variable l6_id
+Forecast = "Y"  # Example placeholder for SAS macro variable Forecast
+
+# These paths would correspond to the locations defined in the SAS environment.
+fcst_log = "/tmp/fcst_log"
+eval_path = "eval_path"
+pred_promo_path = "pred_promo_path"
+pred_base_path = "pred_base_path"
+fcst_promo_path = "fcst_promo_path"
+fcst_base_path = "fcst_base_path"
+
+
+def pids_eval_reg_pl(ModelType, l6, Fcst):
+    tdate = datetime.now().strftime("%m%d%y")
+
+    # Translation of PROC PRINTTO logic
+    if Fcst == "Y":
+        log_path = f"{fcst_log}/Update/DF_Eval/library_setup_eval_{Fcst}_{ModelType}{l6}.txt"
+        print(f"INFO: Log output would be directed to {log_path}")
+    else:
+        log_path = f"{fcst_log}/{ModelType}/library_setup_eval_{Fcst}{l6}.txt"
+        print(f"INFO: Log output would be directed to {log_path}")
+
+    # Translation of conditional LIBNAME logic
+    # In PySpark, we map librefs to database/schema names.
+    if Fcst == "Y":
+        eval_type = "fcst"
+        eval_db = "eval"
+        pred_p_db = "pred_p"
+        pred_b_db = "pred_b"
+    else:
+        eval_type = "train"
+        eval_db = "eval"
+        pred_p_db = "pred_p"
+        pred_b_db = "pred_b"
+
+    # Translation of PROC SQL with INTO clause
+    # This block gets the parameters for the main loop.
+    query_for_loop_vars = f"""
+        SELECT DISTINCT
+            mjr_p_cls_id,
+            L2,
+            TRIM(SUBSTRING(mjr_mds_are_nm_tx, 1, 2)) AS l6nm_val
+        FROM mtest.fcst_p_upc_inf
+        WHERE mjr_mds_are_id = {l6}
+        ORDER BY L2 ASC
+    """
+    loop_vars_df = spark.sql(query_for_loop_vars)
+    
+    collected_rows = loop_vars_df.collect()
+
+    if not collected_rows:
+        print(f"INFO: No data found in mtest.fcst_p_upc_inf for mjr_mds_are_id = {l6}. Exiting.")
+        return
+
+    L2_ids_list = [str(row['mjr_p_cls_id']) for row in collected_rows]
+    L2_table_list = [str(row['L2']) for row in collected_rows]
+    
+    L2_ids = "|".join(L2_ids_list)
+    L2_table = "|".join(L2_table_list)
+    nL2 = len(collected_rows)
+    L6NM = collected_rows[0]['l6nm_val']
+
+    # Main loop translation
+    for j in range(nL2):
+        L2_id = L2_ids_list[j]
+        string2 = L2_table_list[j]
+
+        # First iteration setup: Create empty tables to be appended to.
+        if j == 0:
+            final_table_schema = StructType([
+                StructField("day_dt", DateType(), True),
+                StructField("p_id", LongType(), True),
+                StructField("ut_id", LongType(), True),
+                StructField("RegDaily", DoubleType(), True),
+                StructField("Pred", DoubleType(), True)
+            ])
+            
+            empty_df = spark.createDataFrame([], final_table_schema)
+            
+            base_table_name = f"{eval_db}.{L6NM}_{eval_type}_base_{ModelType}"
+            total_table_name = f"{eval_db}.{L6NM}_{eval_type}_total_{ModelType}"
+
+            empty_df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(base_table_name)
+            empty_df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(total_table_name)
+
+        print(f"INFO: Processing {string2}")
+        
+        # Process "base" data if source table exists
+        base_source_table = f"{pred_b_db}.pid_{string2}_{ModelType}_base"
+        if spark.catalog.tableExists(base_source_table):
+            
+            df_temp_base_source = spark.table(base_source_table)
+            
+            df_temp_base = df_temp_base_source \
+                .select("day_dt", "p_id", "ut_id", "RegDaily") \
+                .withColumn("Pred", F.exp(F.col("RegDaily")) - 1) \
+                .filter(F.col("RegDaily") < 10)
+            
+            # This logic mimics the SAS 'INSERT INTO ... SELECT DISTINCT'
+            df_to_insert_base = df_temp_base \
+                .select("day_dt", "p_id", "ut_id", "RegDaily", "Pred") \
+                .distinct()
+            
+            final_base_table_name = f"{eval_db}.{L6NM}_{eval_type}_base_{ModelType}"
+            df_to_insert_base.write.format("delta").mode("append").saveAsTable(final_base_table_name)
+
+        # Process "promo" data if source table exists
+        promo_source_table = f"{pred_p_db}.pid_{string2}_{ModelType}_promo"
+        if spark.catalog.tableExists(promo_source_table):
+
+            df_temp_promo_source = spark.table(promo_source_table)
+
+            df_temp_promo = df_temp_promo_source \
+                .select("day_dt", "p_id", "ut_id", "RegDaily") \
+                .withColumn("Pred", F.exp(F.col("RegDaily")) - 1) \
+                .filter(F.col("RegDaily") < 10)
+
+            # This logic mimics the SAS 'INSERT INTO ... SELECT DISTINCT'
+            df_to_insert_promo = df_temp_promo \
+                .select("day_dt", "p_id", "ut_id", "RegDaily", "Pred") \
+                .distinct()
+
+            final_total_table_name = f"{eval_db}.{L6NM}_{eval_type}_total_{ModelType}"
+            df_to_insert_promo.write.format("delta").mode("append").saveAsTable(final_total_table_name)
+
+    # Post-loop: Copy data to the 'dr' database
+    # The SAS 'DROP TABLE' is handled by using .mode("overwrite")
+    
+    # Copy base table
+    source_base_to_copy = f"{eval_db}.{L6NM}_{eval_type}_base_{ModelType}"
+    df_base_to_copy = spark.table(source_base_to_copy)
+    dest_base_table = f"dr.fcst_{L6NM}_base_{eval_type}_{ModelType}"
+    df_base_to_copy.write.format("delta").mode("overwrite").saveAsTable(dest_base_table)
+    
+    # Copy total table
+    source_total_to_copy = f"{eval_db}.{L6NM}_{eval_type}_total_{ModelType}"
+    df_total_to_copy = spark.table(source_total_to_copy)
+    dest_total_table = f"dr.fcst_{L6NM}_total_{eval_type}_{ModelType}"
+    df_total_to_copy.write.format("delta").mode("overwrite").saveAsTable(dest_total_table)
+
+
+# Call the main function, equivalent to the SAS macro call
+pids_eval_reg_pl(ModelType=ModelType, l6=l6_id, Fcst=Forecast)
+#End-DBShift
