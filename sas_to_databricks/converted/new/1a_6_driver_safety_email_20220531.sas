@@ -1,23 +1,21 @@
 import pyspark.sql.functions as F
 from pyspark.sql.window import Window
-from pyspark.sql.types import *
-import datetime
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, DoubleType, LongType
+from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 
-# This script assumes the following Python variables have been defined in the Databricks environment:
-# spark: The SparkSession object.
-# conn: The JDBC connection string component for the database type (e.g., 'sqlserver', 'oracle').
-# dsn: The Data Source Name or server/host details for the JDBC connection.
-# usern: The username for the database connection.
-# passw: The password for the database connection.
-# ref2: The database schema name for tables like f_contact_history_analytic.
-# email_feed_end_dt: A string representing the end date for the email feed (e.g., '2023-12-31').
-# runtype: A string indicating the run type (e.g., 'PROD').
-# MULDATE: A string for the reporting date (e.g., '20231231').
+# This script requires the following variables to be defined in the Databricks environment
+# conn: JDBC connection string details (often managed via secrets)
+# dsn: Database name/DSN
+# usern: Database user
+# passw: Database password
+# ref2: Schema/database name for source tables, e.g., "some_db"
+# email_feed_end_dt: A date string like 'YYYY-MM-DD'
+# jdbc_url: The full JDBC URL for the database connection
 
-enddt = datetime.date.today().strftime('%Y-%m-%d')
-enddt_date = datetime.datetime.strptime(enddt, '%Y-%m-%d').date()
+enddt_date = date.today()
 startdt_3mo_date = enddt_date - relativedelta(months=3)
+enddt = enddt_date.strftime('%Y-%m-%d')
 startdt_3mo = startdt_3mo_date.strftime('%Y-%m-%d')
 
 print(f"{enddt} {startdt_3mo}")
@@ -32,19 +30,18 @@ left join {ref2}.d_campaign_analytic f
 		on a.D_CAMPAIGN_KEY=f.D_CAMPAIGN_KEY
 where b.comm_channel = 'E' and contact_direction='I' and cast(contact_dt as date) <= '{email_feed_end_dt}'
 group by mid_key, mailer_id
-order by mid_key, mailer_id
-) as subq
+order by mid_key, mailer_id) as subq
 """
 
-df_from_db = spark.read \
+df_contact_ibmailer_raw = spark.read \
     .format("jdbc") \
-    .option("url", dsn) \
+    .option("url", jdbc_url) \
     .option("dbtable", sql_query) \
     .option("user", usern) \
     .option("password", passw) \
     .load()
 
-df_contact_ibmailer = df_from_db.filter(F.col("num_click_mailer_3mo") > 0)
+df_contact_ibmailer = df_contact_ibmailer_raw.filter(F.col("num_click_mailer_3mo") > 0)
 
 df_contact_ibmailer.createOrReplaceTempView("contact_ibmailer")
 
@@ -68,17 +65,13 @@ df_diffclick = spark.sql("""
         mid_key
 """)
 
-df_geo_appends_rpm = spark.table("intermed.geo_appends_rpm")
-
-df_geo_appends_rpm_modified = df_geo_appends_rpm.withColumn(
+df_geo_appends_rpm_input = spark.table("intermed.geo_appends_rpm")
+df_geo_appends_rpm = df_geo_appends_rpm_input.withColumn(
     "newsletter_opens_cnt_ytd",
-    F.when(F.col("newsletter_opens_cnt_ytd") > 0, 0).otherwise(F.col("newsletter_opens_cnt_ytd"))
+    F.when(F.col("newsletter_opens_cnt_ytd") > 0, F.lit(0)).otherwise(F.col("newsletter_opens_cnt_ytd"))
 )
 
-df_geo_appends_rpm_modified.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable("intermed.geo_appends_rpm")
-
-df_geo_appends_rpm_reloaded = spark.table("intermed.geo_appends_rpm")
-df_geo_appends_rpm_reloaded.createOrReplaceTempView("geo_appends_rpm")
+df_geo_appends_rpm.createOrReplaceTempView("geo_appends_rpm")
 df_totalclick.createOrReplaceTempView("totalclick")
 df_diffclick.createOrReplaceTempView("diffclick")
 
@@ -129,16 +122,15 @@ df_emu_email_data = spark.sql("""
 """)
 
 df_scoring_allmodel = df_emu_email_data
-
 df_scoring_allmodel = df_scoring_allmodel.withColumn("emailable_dum", F.when(F.col("EMAILABLE_AGG_IND") == 'Y', 1).otherwise(0))
-df_scoring_allmodel = df_scoring_allmodel.withColumn("goi_missing_dum", F.when((F.col("globally_opted_in") == '') | (F.col("globally_opted_in").isNull()), 1).otherwise(0))
+df_scoring_allmodel = df_scoring_allmodel.withColumn("goi_missing_dum", F.when(F.col("globally_opted_in") == '', 1).otherwise(0))
 df_scoring_allmodel = df_scoring_allmodel.withColumn("child_6to10_dum", F.when(F.col("IBX_CHILD_AGE_06_10_AGG_HHD") == 1, 1).otherwise(0))
 df_scoring_allmodel = df_scoring_allmodel.withColumn("homebiz_dum", F.when(F.col("IBX_HOME_BUSINESS_AGG_HHD") == 'Y', 1).otherwise(0))
 df_scoring_allmodel = df_scoring_allmodel.withColumn("advo_s1_dum", F.when(F.col("advo_segment_cd") == 'S1', 1).otherwise(0))
 df_scoring_allmodel = df_scoring_allmodel.withColumn("curterm_36_dum", F.when(F.col("cur_term") == '36', 1).otherwise(0))
 df_scoring_allmodel = df_scoring_allmodel.withColumn("curterm_60_dum", F.when(F.col("cur_term") == '60', 1).otherwise(0))
-df_scoring_allmodel = df_scoring_allmodel.withColumn("masters22_16to20_dum", F.when(F.col("old_score22_vigintile").isin('16','17','18','19','20'), 1).otherwise(0))
-df_scoring_allmodel = df_scoring_allmodel.withColumn("masters35_18to20_dum", F.when(F.col("old_score35_vigintile").isin('18','19','20'), 1).otherwise(0))
+df_scoring_allmodel = df_scoring_allmodel.withColumn("masters22_16to20_dum", F.when(F.col("old_score22_vigintile").isin(['16','17','18','19','20']), 1).otherwise(0))
+df_scoring_allmodel = df_scoring_allmodel.withColumn("masters35_18to20_dum", F.when(F.col("old_score35_vigintile").isin(['18','19','20']), 1).otherwise(0))
 df_scoring_allmodel = df_scoring_allmodel.withColumn("cntct_lifstyle_12mo_agg_hhd_c", F.when(F.col("cntct_lifstyle_12mo_agg_hhd").isNull(), 7.5457431).otherwise(F.col("cntct_lifstyle_12mo_agg_hhd")))
 df_scoring_allmodel = df_scoring_allmodel.withColumn("cntct_lifstyle_3mo_agg_hhd_c", F.when(F.col("cntct_lifstyle_3mo_agg_hhd").isNull(), 2.8474899).otherwise(F.col("cntct_lifstyle_3mo_agg_hhd")))
 df_scoring_allmodel = df_scoring_allmodel.withColumn("Age_c", F.when(F.col("age_agg_ind").isNull(), 63.8792719).otherwise(F.col("age_agg_ind")))
@@ -165,8 +157,8 @@ df_scoring_allmodel = df_scoring_allmodel.withColumn("ELECTIONDAYAGE_c", F.when(
 df_scoring_allmodel = df_scoring_allmodel.withColumn("MEDIA_RADIO_c", F.when(F.col("RADIO").isNull(), 44.8587859).otherwise(F.col("RADIO")))
 df_scoring_allmodel = df_scoring_allmodel.withColumn("MEDIA_SMARTPHONE_c", F.when(F.col("SMARTPHONE").isNull(), 24.1648341).otherwise(F.col("SMARTPHONE")))
 df_scoring_allmodel = df_scoring_allmodel.withColumn("SY_GUNSCORE_c", F.when(F.col("GUN_OWNERSHIP_MODEL").isNull(), 0.3558337).otherwise(F.col("GUN_OWNERSHIP_MODEL")))
-df_scoring_allmodel = df_scoring_allmodel.withColumn("click_count", F.coalesce(F.col("click_count"), F.lit(0)))
-df_scoring_allmodel = df_scoring_allmodel.withColumn("mailercount_click", F.coalesce(F.col("mailercount_click"), F.lit(0)))
+df_scoring_allmodel = df_scoring_allmodel.withColumn("click_count", F.when(F.col("click_count").isNull(), 0).otherwise(F.col("click_count")))
+df_scoring_allmodel = df_scoring_allmodel.withColumn("mailercount_click", F.when(F.col("mailercount_click").isNull(), 0).otherwise(F.col("mailercount_click")))
 df_scoring_allmodel = df_scoring_allmodel.withColumn("click_count_0_dum", F.when(F.col("click_count") == 0, 1).otherwise(0))
 
 df_scoring_allmodel = df_scoring_allmodel.withColumn("logit_drvsafe_pro_em_old", 
@@ -207,41 +199,37 @@ df_scoring_allmodel = df_scoring_allmodel.withColumn("logit_drvsafe_pro_em_old",
     F.col("MEDIA_SMARTPHONE_c") * -0.0201 + 
     F.col("SY_GUNSCORE_c") * -0.4455
 )
+
 df_scoring_allmodel = df_scoring_allmodel.withColumn("drvsafe_pro_em_score_old", F.exp(F.col("logit_drvsafe_pro_em_old")) / (1 + F.exp(F.col("logit_drvsafe_pro_em_old"))))
 
-df_scoring_allmodel = df_scoring_allmodel.select("drvsafe_pro_em_score_old", "mid_key")
+df_scoring_allmodel_final = df_scoring_allmodel.select("drvsafe_pro_em_score_old", "mid_key")
 
-df_scoring_allmodel_deduped = df_scoring_allmodel.dropDuplicates(["mid_key"])
+df_scoring_allmodel_deduped = df_scoring_allmodel_final.dropDuplicates(["mid_key"])
 
 df_scoring_allmodel_with_dummy = df_scoring_allmodel_deduped.withColumn("dummy", F.lit(1))
-window_spec = Window.partitionBy("dummy").orderBy(F.col("drvsafe_pro_em_score_old").desc())
+window_spec_rank = Window.partitionBy("dummy").orderBy(F.col("drvsafe_pro_em_score_old").desc())
+df_bl_rank = df_scoring_allmodel_with_dummy.withColumn("drvsafe_pro_em_old", F.ntile(99).over(window_spec_rank)).drop("dummy")
 
-df_bl_rank = df_scoring_allmodel_with_dummy.withColumn("drvsafe_pro_em_old", F.ntile(99).over(window_spec))
+df_geo_appends_rpm_for_dedup = spark.table("intermed.geo_appends_rpm")
+df_geo_appends_rpm_dedup = df_geo_appends_rpm_for_dedup.dropDuplicates(["merkleid"])
 
-df_bl_rank = df_bl_rank.select("mid_key", "drvsafe_pro_em_old")
+df_geo_appends_rpm_dedup.createOrReplaceTempView("geo_appends_rpm_dedup")
+df_bl_rank.createOrReplaceTempView("bl_rank")
 
-df_geo_appends_rpm = spark.table("intermed.geo_appends_rpm")
-df_geo_appends_rpm_dedup = df_geo_appends_rpm.dropDuplicates(["merkleid"])
+df_geo_appends_rpm_updated = spark.sql("""
+    SELECT
+        a.*,
+        b.drvsafe_pro_em_old + 1 AS drvsafe_pro_em_old
+    FROM
+        geo_appends_rpm_dedup a
+    LEFT JOIN
+        bl_rank b ON CAST(a.merkleid AS BIGINT) = b.mid_key
+""")
 
-if "drvsafe_pro_em_old" in df_geo_appends_rpm_dedup.columns:
-    df_geo_appends_rpm_dedup = df_geo_appends_rpm_dedup.drop("drvsafe_pro_em_old")
-
-df_joined = df_geo_appends_rpm_dedup.join(
-    df_bl_rank,
-    F.col("merkleid").cast("long") == df_bl_rank["mid_key"],
-    "left"
-)
-
-select_cols = df_geo_appends_rpm_dedup.columns + [(F.col("drvsafe_pro_em_old") + 1).alias("drvsafe_pro_em_old")]
-
-df_final_geo_appends_rpm = df_joined.select(*select_cols)
-
-df_final_geo_appends_rpm.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable("intermed.geo_appends_rpm")
+df_geo_appends_rpm_updated.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable("intermed.geo_appends_rpm")
 
 df_geo_appends_rpm_for_freq = spark.table("intermed.geo_appends_rpm")
-
-print(f"Frequency Distribution for Old Driver Safety Email Model Scores: {MULDATE} Data")
-df_freq = df_geo_appends_rpm_for_freq.groupBy("drvsafe_pro_em_old").count().orderBy(F.col("drvsafe_pro_em_old").asc_nulls_last())
+df_freq = df_geo_appends_rpm_for_freq.groupBy("drvsafe_pro_em_old").count().orderBy(F.asc_nulls_last("drvsafe_pro_em_old"))
 df_freq.show(df_freq.count(), truncate=False)
 
 #End-DBShift
