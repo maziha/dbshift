@@ -1,0 +1,243 @@
+import pyspark.sql.functions as F
+from pyspark.sql.types import *
+from datetime import datetime
+from functools import reduce
+
+ModelType = "Reg_PL"
+type_var = "Reg_PL"
+tdate = datetime.now().strftime('%m%d%Y')
+
+def pids_model_score_spd(L6, LastPrWk, ValidWeeks, rescore, Fcst, mo_date, retrain, Update_M, fcst_log, fcst_coef, pred_promo, pred_base, fcst_promo):
+
+    if Fcst == 'Y':
+        score_m_db_path = f"{fcst_coef}/{type_var}"
+        pred_p_db_path = f"{pred_promo}/{ModelType}"
+        pred_b_db_path = f"{pred_base}/{ModelType}"
+    else:
+        score_m_db_path = f"{fcst_coef}/{type_var}/Train"
+        pred_p_db_path = f"{fcst_promo}/{ModelType}"
+        pred_b_db_path = f"{fcst_base}/{ModelType}"
+
+    if Fcst == 'Y':
+        df_l6_info = spark.sql(f"""
+            SELECT DISTINCT 
+                TRIM(SUBSTR(mjr_mds_are_nm_tx, 1, 2)) as L6tx,
+                mjr_p_cls_id
+            FROM mtest.fcst_p_upc_inf
+            WHERE mjr_mds_are_id = {L6}
+        """)
+        
+        l6_info_collected = df_l6_info.collect()
+        if not l6_info_collected:
+            print(f"Warning: No data found for mjr_mds_are_id = {L6}. Exiting.")
+            return
+
+        L6tx = l6_info_collected[0]['L6tx']
+        l2_values = [f"'{row['mjr_p_cls_id']}'" for row in l6_info_collected]
+        L2_in_clause = ",".join(l2_values)
+
+        df_promo_future = spark.table(f"promo.fcst_future_pred_set_{L6tx}")
+        df_st_inf_flg = spark.table("mtest.st_inf_flg")
+
+        df_future_promo_data = df_promo_future.alias("a").join(
+            df_st_inf_flg.alias("b"),
+            F.col("a.ut_id") == F.col("b.ut_id"),
+            "inner"
+        ).filter(
+            F.col("a.mjr_p_cls_id").isin([row['mjr_p_cls_id'] for row in l6_info_collected]) &
+            ((F.col("a.promo_model") == ModelType) | (F.col("a.base_model") == ModelType))
+        ).select("a.*")
+        
+        future_promo_table_name = f"promo.future_{ModelType}_{L6tx}"
+        df_future_promo_data.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(future_promo_table_name)
+    
+    if Fcst == 'Y':
+        future_table_for_sql = f"promo.future_{ModelType}_{L6tx}"
+        spark.sql(f"CREATE OR REPLACE TEMP VIEW future_promo_data AS SELECT * FROM {future_table_for_sql}")
+        
+        join_sql = f"""
+        INNER JOIN (
+            SELECT DISTINCT mjr_p_cls_id FROM future_promo_data
+        ) AS b ON a.mjr_p_cls_id = b.mjr_p_cls_id
+        """
+    else:
+        join_sql = f"""
+        WHERE a.mjr_mds_are_id = {L6}
+        AND a.mjr_p_cls_id NOT IN ('L2-010051')
+        """
+
+    spark.table("mtest.fcst_p_upc_inf").createOrReplaceTempView("fcst_p_upc_inf")
+    spark.table("mtest.fcst_seasonal_index").createOrReplaceTempView("fcst_seasonal_index")
+
+    l2_info_query = f"""
+        SELECT DISTINCT
+            a.mjr_p_cls_id,
+            a.L2,
+            TRIM(SUBSTR(a.mjr_mds_are_nm_tx, 1, 2)) as L6NM,
+            c.seasonal_indx
+        FROM fcst_p_upc_inf AS a
+        LEFT JOIN fcst_seasonal_index AS c ON a.mjr_p_cls_id = c.mjr_p_cls_id
+        {join_sql}
+        ORDER BY L2 ASC
+    """
+    df_l2_info = spark.sql(l2_info_query)
+    
+    l2_info_collected = df_l2_info.collect()
+    
+    if not l2_info_collected:
+        print("No L2 info collected to process. Exiting.")
+        return
+
+    L2_ids_list = [row['mjr_p_cls_id'] for row in l2_info_collected]
+    L2_table_list = [row['L2'] for row in l2_info_collected]
+    seasonal_indx_list = [row['seasonal_indx'] for row in l2_info_collected]
+    nL2 = len(L2_ids_list)
+    L6NM = l2_info_collected[0]['L6NM'] if l2_info_collected else ""
+
+    print(L6NM)
+    print(Fcst)
+    
+    for j in range(nL2):
+        L2_id = L2_ids_list[j]
+        string2 = L2_table_list[j]
+        L2_indx = seasonal_indx_list[j]
+
+        if Fcst == 'Y':
+            exist = 0
+            nobs = 0
+            score_type = 'fcst'
+        else:
+            table_to_check = f"{pred_p_db_path.replace('/', '.')}.pid_{string2}_{ModelType}_promo"
+            exist = 0
+            nobs = 0
+            if spark.catalog.tableExists(table_to_check):
+                try:
+                    history_df = spark.sql(f"DESCRIBE HISTORY {table_to_check}")
+                    latest_commit_ts = history_df.orderBy(F.col("version").desc()).first()['timestamp']
+                    if latest_commit_ts.date() > datetime.strptime(mo_date, '%Y-%m-%d').date():
+                        exist = 1
+                        nobs = spark.table(table_to_check).count()
+                except Exception:
+                    exist = 0
+                    nobs = 0
+            score_type = 'train'
+            print(exist)
+            print(nobs)
+        
+        coef_table_name = f"{score_m_db_path.replace('/', '.')}.pid_{string2}_coef"
+        if spark.catalog.tableExists(coef_table_name) and (rescore == 'Y' or exist != 1 or nobs < 10):
+            
+            if Fcst == 'Y':
+                base_coef_df_name = f"future_coef_base_{ModelType}_{L6NM}"
+            else:
+                base_coef_df_name = f"pid_coef_base_{type_var}_{L6NM}"
+
+            df_coef = spark.table(coef_table_name)
+            df_coef_base = df_coef.withColumn("ntl_log_bse_promo_dct_pr_am", F.lit(0)) \
+                                  .withColumn("adv_circ_flg", F.lit(0)) \
+                                  .withColumn("adv_mid_wk_flg", F.lit(0)) \
+                                  .withColumn("adv_super_evnt_flg", F.lit(0)) \
+                                  .withColumn("adv_dgtl_circ_flg", F.lit(0)) \
+                                  .withColumn("unadv_flg", F.lit(0)) \
+                                  .withColumn("p_ten_for_ten_flg", F.lit(0))
+            df_coef_base.createOrReplaceTempView(base_coef_df_name)
+
+            if Fcst == 'Y':
+                df_temp_pdl = spark.table(f"promo.future_{ModelType}_{L6tx}").filter(F.col("mjr_p_cls_id") == L2_id)
+            else:
+                df_pid_string2 = spark.table(f"promo.pid_{string2}")
+                df_st_inf_flg_join = spark.table("mtest.st_inf_flg")
+                df_temp_pdl_unfiltered = df_pid_string2.alias("a").join(df_st_inf_flg_join.alias("b"), F.col("a.ut_id") == F.col("b.ut_id"), "inner").select("a.*")
+                
+                if L2_indx == 1:
+                    df_temp_pdl = df_temp_pdl_unfiltered.filter(
+                        ((F.col("p_sold_first_dt") <= (LastPrWk - 724)) & (F.col("day_dt").between(LastPrWk - 364, LastPrWk - 364 + (ValidWeeks * 7)))) |
+                        ((F.col("p_sold_first_dt") > (LastPrWk - 724)) & (F.col("day_dt").between(LastPrWk - (ValidWeeks * 7), LastPrWk)))
+                    )
+                else:
+                    df_temp_pdl = df_temp_pdl_unfiltered.filter(F.col("day_dt").between(LastPrWk - (ValidWeeks * 7), LastPrWk))
+
+            df_temp_pdl = df_temp_pdl.orderBy("p_id")
+            
+            var_list = ['ntl_log_bse_pr_am', 'ntl_log_bse_promo_dct_pr_am', 'fcl_per_of_yr_id'] + \
+                       [f'wk{i}' for i in range(2, 53)] + \
+                       [f'dow{i}' for i in range(2, 8)] + \
+                       [f'ut{i}' for i in range(19, 325)] + \
+                       ['adv_circ_flg', 'adv_mid_wk_flg', 'adv_super_evnt_flg', 'adv_dgtl_circ_flg', 'unadv_flg', 'p_ten_for_ten_flg'] + \
+                       ['NY', 'SuperBowlSat', 'DayB4Valentine', 'Valentine', 'Easter', 'EasterWk', 'MomSat', 'Mom', 'Memorial', 'MemWkend', 'DadSat', 'Dad', 'JulyFour', 'Labor', 'LaborWkEnd', 'LaborFri', 'LaborSat', 'LaborSun', 'Columbus', 'MCC_BLK_OUT', 'PreHalo_Fri', 'PreHalo_Sat', 'PreHalo_Sun', 'HalloweenEve', 'HalloweenFri', 'Halloween', 'Veterans', 'FridayB4Turkey', 'SaturdayB4Turkey', 'TurkeyWed', 'Turkey', 'BlackFri', 'RedSat', 'DecTwoThree', 'DecTwoSix', 'SunPreXmas', 'XMASEVE', 'SUNPNY', 'SATPNY', 'NYEVE']
+            
+            id_cols = ['day_dt', 'p_id', 'mjr_p_cls_id', 'ut_id', 'ntl_log_bse_pr_am', 'ntl_log_bse_promo_dct_pr_am', 'fcl_per_of_yr_id', 'adv_circ_flg', 'adv_mid_wk_flg', 'adv_super_evnt_flg', 'adv_dgtl_circ_flg']
+
+            # PROC SCORE for BASE
+            if Fcst == 'Y':
+                input_data_base = df_temp_pdl.filter(F.col("base_model") == ModelType)
+                output_table_base = f"{pred_b_db_path.replace('/', '.')}.pid_{string2}_{ModelType}_base"
+                score_coeffs_base_df = spark.table(base_coef_df_name)
+            else:
+                input_data_base = df_temp_pdl
+                output_table_base = f"{pred_b_db_path.replace('/', '.')}.pid_{string2}_{type_var}_base"
+                score_coeffs_base_df = spark.table(base_coef_df_name)
+            
+            try:
+                coeffs_base = score_coeffs_base_df.first().asDict()
+                present_vars_base = [v for v in var_list if v in input_data_base.columns]
+                score_expr_base = F.lit(coeffs_base.get('Intercept', 0.0))
+                for var in present_vars_base:
+                    score_expr_base += (F.coalesce(F.col(var), F.lit(0)) * F.lit(coeffs_base.get(var, 0.0)))
+                
+                df_pred_b = input_data_base.withColumn("p_score", score_expr_base).select(*id_cols, "p_score")
+                df_pred_b.write.format("delta").mode("overwrite").saveAsTable(output_table_base)
+            except (AttributeError, IndexError):
+                print(f"ERROR: Could not find coefficients for base model for {string2}")
+
+            # PROC SCORE for PROMO
+            if Fcst == 'Y':
+                input_data_promo = df_temp_pdl.filter(F.col("promo_model") == ModelType)
+                output_table_promo = f"{pred_p_db_path.replace('/', '.')}.pid_{string2}_{ModelType}_promo"
+            else:
+                input_data_promo = df_temp_pdl
+                output_table_promo = f"{pred_p_db_path.replace('/', '.')}.pid_{string2}_{type_var}_promo"
+            
+            try:
+                coeffs_promo = df_coef.first().asDict()
+                present_vars_promo = [v for v in var_list if v in input_data_promo.columns]
+                score_expr_promo = F.lit(coeffs_promo.get('Intercept', 0.0))
+                for var in present_vars_promo:
+                    score_expr_promo += (F.coalesce(F.col(var), F.lit(0)) * F.lit(coeffs_promo.get(var, 0.0)))
+                
+                df_pred_p = input_data_promo.withColumn("p_score", score_expr_promo).select(*id_cols, "p_score")
+                df_pred_p.write.format("delta").mode("overwrite").saveAsTable(output_table_promo)
+            except (AttributeError, IndexError):
+                print(f"ERROR: Could not find coefficients for promo model for {string2}")
+
+
+L6_id = "some_l6_id" 
+LastPreWeek = 12345 
+ValidWks = 52
+score = "Y"
+Forecast = "N"
+mo_dt = "2023-01-01"
+train = "Y"
+Update = "N"
+fcst_log_path = "/path/to/fcst_log"
+fcst_coef_path = "db_name/fcst_coef"
+pred_promo_path = "db_name/pred_promo"
+pred_base_path = "db_name/pred_base"
+fcst_promo_path = "db_name/fcst_promo"
+
+pids_model_score_spd(
+    L6=L6_id,
+    LastPrWk=LastPreWeek,
+    ValidWeeks=ValidWks,
+    rescore=score,
+    Fcst=Forecast,
+    mo_date=mo_dt,
+    retrain=train,
+    Update_M=Update,
+    fcst_log=fcst_log_path,
+    fcst_coef=fcst_coef_path,
+    pred_promo=pred_promo_path,
+    pred_base=pred_base_path,
+    fcst_promo=fcst_promo_path
+)
+#End-DBShift

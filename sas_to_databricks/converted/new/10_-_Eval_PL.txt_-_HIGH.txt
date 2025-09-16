@@ -1,0 +1,155 @@
+import pyspark.sql.functions as F
+from pyspark.sql.types import StructType, StructField, DateType, LongType, DoubleType
+from datetime import datetime
+
+# #############################################################################
+# Configuration
+# These variables would typically be set by a calling script or notebook widget
+# #############################################################################
+ModelType = "Reg_PL"
+type_var = "Reg_PL" # 'type' is a reserved keyword in Python
+l6_id = 123 # Example value for l6_id
+Forecast = "Y" # Example value for Forecast, 'Y' or 'N'
+
+# Paths corresponding to SAS libraries, assumed to be database names in Databricks
+fcst_log_path = "/path/to/fcst_log"
+eval_path = "eval_db" # Using schema names for libnames
+pred_promo_path = "pred_promo_db"
+pred_base_path = "pred_base_db"
+fcst_promo_path = "fcst_promo_db"
+fcst_base_path = "fcst_base_db"
+dr_db = "dr"
+mtest_db = "mtest"
+# #############################################################################
+
+tdate = datetime.today().strftime('%m%d%Y')
+
+# This section corresponds to the %pids_eval_reg_pl macro logic
+
+# The 'proc printto' logic is for redirecting logs and is not translated.
+# Equivalent logging would be handled by Databricks logging mechanisms.
+
+if Forecast == 'Y':
+    eval_type = 'fcst'
+    eval_db = f"{eval_path}_{ModelType}"
+    pred_p_db = f"{pred_promo_path}_{ModelType}"
+    pred_b_db = f"{pred_base_path}_{ModelType}"
+else:
+    eval_type = 'train'
+    eval_db = f"{eval_path}_{ModelType}_Train"
+    pred_p_db = f"{fcst_promo_path}_{ModelType}"
+    pred_b_db = f"{fcst_base_path}_{ModelType}"
+
+# PROC SQL to fetch L2 information
+# In SAS, this populates macro variables. In PySpark, we'll run the query and
+# collect the results to the driver to build Python variables.
+l2_info_query = f"""
+    SELECT
+        mjr_p_cls_id,
+        L2,
+        TRIM(SUBSTRING(mjr_mds_are_nm_tx, 1, 2)) as l6nm
+    FROM {mtest_db}.fcst_p_upc_inf
+    WHERE mjr_mds_are_id = {l6_id}
+    GROUP BY mjr_p_cls_id, L2, TRIM(SUBSTRING(mjr_mds_are_nm_tx, 1, 2))
+    ORDER BY L2 ASC
+"""
+df_l2_info = spark.sql(l2_info_query)
+l2_info_rows = df_l2_info.collect()
+
+L2_ids = []
+L2_table = []
+nL2 = 0
+L6NM = ""
+
+if l2_info_rows:
+    L2_ids = [str(row.mjr_p_cls_id) for row in l2_info_rows]
+    L2_table = [str(row.L2) for row in l2_info_rows]
+    nL2 = len(l2_info_rows)
+    L6NM = l2_info_rows[0].l6nm
+
+# Main loop corresponding to the %DO loop
+for j in range(nL2):
+    L2_id = L2_ids[j]
+    string2 = L2_table[j]
+
+    if j == 0:
+        # Create empty tables on the first iteration
+        schema = StructType([
+            StructField("day_dt", DateType(), True),
+            StructField("p_id", LongType(), True),
+            StructField("ut_id", LongType(), True),
+            StructField("RegDaily", DoubleType(), True),
+            StructField("Pred", DoubleType(), True)
+        ])
+        empty_df = spark.createDataFrame([], schema)
+
+        base_table_name = f"{eval_db}.{L6NM}_{eval_type}_base_{ModelType}"
+        total_table_name = f"{eval_db}.{L6NM}_{eval_type}_total_{ModelType}"
+        
+        # spark.sql(f"CREATE DATABASE IF NOT EXISTS {eval_db}")
+        empty_df.write.format("delta").mode("overwrite").saveAsTable(base_table_name)
+        empty_df.write.format("delta").mode("overwrite").saveAsTable(total_table_name)
+
+    print(string2)
+    
+    # Process base predictions
+    base_pred_table_name = f"{pred_b_db}.pid_{string2}_{ModelType}_base"
+    if spark.catalog.tableExists(base_pred_table_name):
+        # proc sql; drop table ...;
+        target_base_table_name = f"{eval_db}.{L6NM}_{eval_type}_base_{ModelType}"
+        spark.sql(f"DROP TABLE IF EXISTS {target_base_table_name}")
+
+        # data eval...; set pred_b...;
+        df_base_source = spark.table(base_pred_table_name)
+        df_base_transformed = df_base_source \
+            .select("day_dt", "p_id", "ut_id", "RegDaily") \
+            .withColumn("Pred", F.exp(F.col("RegDaily")) - 1) \
+            .filter(F.col("RegDaily") < 10)
+        
+        df_base_transformed.write.format("delta").mode("overwrite").saveAsTable(target_base_table_name)
+
+        # proc sql; insert into ... select distinct ... from ...
+        df_to_append_base = spark.table(target_base_table_name).distinct()
+        df_to_append_base.write.format("delta").mode("append").saveAsTable(target_base_table_name)
+
+    # Process total (promo) predictions
+    promo_pred_table_name = f"{pred_p_db}.pid_{string2}_{ModelType}_promo"
+    if spark.catalog.tableExists(promo_pred_table_name):
+        # proc sql; drop table ...;
+        target_total_table_name = f"{eval_db}.{L6NM}_{eval_type}_total_{ModelType}"
+        spark.sql(f"DROP TABLE IF EXISTS {target_total_table_name}")
+
+        # data eval...; set pred_p...;
+        df_promo_source = spark.table(promo_pred_table_name)
+        df_promo_transformed = df_promo_source \
+            .select("day_dt", "p_id", "ut_id", "RegDaily") \
+            .withColumn("Pred", F.exp(F.col("RegDaily")) - 1) \
+            .filter(F.col("RegDaily") < 10)
+            
+        df_promo_transformed.write.format("delta").mode("overwrite").saveAsTable(target_total_table_name)
+
+        # proc sql; insert into ... select distinct ... from ...
+        df_to_append_total = spark.table(target_total_table_name).distinct()
+        df_to_append_total.write.format("delta").mode("append").saveAsTable(target_total_table_name)
+
+# Final write to 'dr' database
+# Drop tables first
+dr_base_table_name = f"{dr_db}.fcst_{L6NM}_base_{eval_type}_{ModelType}"
+dr_total_table_name = f"{dr_db}.fcst_{L6NM}_total_{eval_type}_{ModelType}"
+
+spark.sql(f"DROP TABLE IF EXISTS {dr_base_table_name}")
+spark.sql(f"DROP TABLE IF EXISTS {dr_total_table_name}")
+
+# Create final tables in 'dr'
+# spark.sql(f"CREATE DATABASE IF NOT EXISTS {dr_db}")
+
+eval_base_table_full_name = f"{eval_db}.{L6NM}_{eval_type}_base_{ModelType}"
+if spark.catalog.tableExists(eval_base_table_full_name):
+    df_eval_base = spark.table(eval_base_table_full_name)
+    df_eval_base.write.format("delta").mode("overwrite").saveAsTable(dr_base_table_name)
+
+eval_total_table_full_name = f"{eval_db}.{L6NM}_{eval_type}_total_{ModelType}"
+if spark.catalog.tableExists(eval_total_table_full_name):
+    df_eval_total = spark.table(eval_total_table_full_name)
+    df_eval_total.write.format("delta").mode("overwrite").saveAsTable(dr_total_table_name)
+#End-DBShift

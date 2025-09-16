@@ -1,0 +1,317 @@
+import pyspark.sql.functions as F
+from pyspark.sql import SparkSession
+from pyspark.sql.window import Window
+from pyspark.sql.types import StructType, StructField, StringType, DoubleType, TimestampType, IntegerType, DateType
+from datetime import datetime
+import pandas as pd
+from sklearn.linear_model import LinearRegression
+import numpy as np
+
+# Initializing Spark Session
+spark = SparkSession.builder.appName("RegSPD_Translation").getOrCreate()
+
+# SAS %LET statements to Python variables
+ModelType = "Reg_PL"
+type_var = "Reg_PL" # 'type' is a reserved keyword in Python
+tdate = datetime.now().strftime("%m%d%y")
+md = datetime.now().day
+
+print(md)
+print(f"today month day is {md}")
+
+# Placeholder variables for macro parameters, to be set by the calling environment
+fcst_log = "/path/to/fcst_log"
+fcst_coef = "/path/to/fcst_coef"
+archive = "/path/to/archive"
+L6_id = "some_l6_id" # Example value
+LastPreWeek = "2023-12-31" # Example value, should be in yyyy-mm-dd format
+ValidWks = 4 # Example value
+train = "N" # Example value
+Update = "N" # Example value
+mo_dt = "2023-01-01" # Example value, should be in yyyy-mm-dd format
+
+# TD Connection Details (placeholders)
+td_user = "your_user"
+td_password = "your_password"
+td_url = "jdbc:teradata://your_server/database=dl_cntl_adva"
+
+def pids_model_reg_pl(L6, LastPrWk, ValidWeeks, retrain, Update_M, mo_date):
+    print(f"Executing: proc printto log= \"{fcst_log}/{ModelType}/library_setup_train_{Update_M}{L6}{md}.txt\" new;")
+
+    if Update_M == 'Y':
+        train_m_path = f"{fcst_coef}/{type_var}"
+        train_a_path = f"{archive}/{type_var}"
+        ValidWeeks = 0
+        db_train_m = train_m_path.replace('/', '_').strip('_')
+        db_train_a = train_a_path.replace('/', '_').strip('_')
+        spark.sql(f"CREATE DATABASE IF NOT EXISTS {db_train_m} LOCATION '{train_m_path}'")
+        spark.sql(f"CREATE DATABASE IF NOT EXISTS {db_train_a} LOCATION '{train_a_path}'")
+    else:
+        train_m_path = f"{fcst_coef}/{type_var}/Train"
+        db_train_m = train_m_path.replace('/', '_').strip('_')
+        spark.sql(f"CREATE DATABASE IF NOT EXISTS {db_train_m} LOCATION '{train_m_path}'")
+
+    now = datetime.now().date()
+    print(now)
+    d = now.day
+    print(d)
+    
+    # proc sql; create table l2_data_coef
+    try:
+        tables_in_train_m_df = spark.catalog.listTables(db_train_m)
+        df_l2_data_coef = tables_in_train_m_df.select(
+            F.substring(F.substring(F.col("name"), 5, 100), 1, 9).alias("l2"), # SAS: substr(substr(memname,5,-1),1,9)
+            F.col("lastModified").alias("modate")
+        ).orderBy("modate")
+        df_l2_data_coef.createOrReplaceTempView("l2_data_coef")
+    except Exception as e:
+        # Handle case where database or tables don't exist yet
+        print(f"Could not create l2_data_coef, likely no tables in {db_train_m} yet. Error: {e}")
+        spark.createDataFrame([], StructType([StructField("l2", StringType()), StructField("modate", TimestampType())])) \
+             .createOrReplaceTempView("l2_data_coef")
+
+
+    # proc sql; select into ...
+    spark.table("mtest.fcst_p_upc_inf").createOrReplaceTempView("fcst_p_upc_inf")
+    spark.table("mtest.fcst_seasonal_index").createOrReplaceTempView("fcst_seasonal_index")
+    spark.table("mtest.model_upd_track_train").createOrReplaceTempView("model_upd_track_train")
+    
+    sql_query_l2_ids = f"""
+        SELECT
+            collect_list(CAST(a.mjr_p_cls_id AS STRING)) as mjr_p_cls_id_list,
+            collect_list(CAST(a.L2 AS STRING)) as L2_list,
+            count(distinct a.mjr_p_cls_id) as nL2,
+            round(count(distinct a.mjr_p_cls_id)/2,1) as stL2,
+            collect_list(TRIM(SUBSTRING(a.mjr_mds_are_nm_tx,1,2))) as L6_nm_list,
+            collect_list(CAST(b.seasonal_indx AS STRING)) as seasonal_indx_list
+        FROM (
+            SELECT *, row_number() OVER (ORDER BY c.modate asc) as rn
+            FROM fcst_p_upc_inf AS a
+            LEFT JOIN fcst_seasonal_index AS b ON a.mjr_p_cls_id = b.mjr_p_cls_id
+            LEFT JOIN l2_data_coef AS c ON a.l2 = c.l2
+            INNER JOIN model_upd_track_train AS m ON a.l2 = m.l2
+            WHERE a.mjr_mds_are_id = {L6}
+            AND a.mjr_p_cls_id NOT IN ('L2-010051')
+            AND (m.newdate < '{mo_date}' OR CAST(m.bytes AS DOUBLE) <= 131072)
+            AND m.model = '{ModelType}'
+        ) AS subquery
+    """
+    
+    result_df = spark.sql(sql_query_l2_ids)
+    
+    if result_df.count() > 0:
+        result_row = result_df.first()
+        L2_ids_list = result_row["mjr_p_cls_id_list"]
+        L2_table_list = result_row["L2_list"]
+        nL2 = result_row["nL2"]
+        stL2 = result_row["stL2"]
+        L6_nm_list = result_row["L6_nm_list"]
+        seasonal_indx_list = result_row["seasonal_indx_list"]
+
+        L2_ids = "|".join(L2_ids_list if L2_ids_list is not None else [])
+        L2_table = "|".join(L2_table_list if L2_table_list is not None else [])
+        if L6_nm_list: L6_nm = L6_nm_list[0] if L6_nm_list else ''
+        else: L6_nm = ''
+        seasonal_indx = "|".join(seasonal_indx_list if seasonal_indx_list is not None else [])
+    else:
+        nL2 = 0
+
+    for j in range(1, int(nL2) + 1):
+        L2_id = L2_ids.split("|")[j-1]
+        string2 = L2_table.split("|")[j-1]
+        L2_indx = seasonal_indx.split("|")[j-1]
+
+        print(f"Executing: proc printto log= \"{fcst_log}/{ModelType}/pid_{string2}Retrain{md}.txt\" new;")
+
+        exist = 0
+        nobs = 0
+        table_to_check = f"pid_{string2}_coef"
+        
+        try:
+            # Equivalent of dictionary.tables check
+            table_meta_list = spark.catalog.listTables(db_train_m)
+            filtered_meta = [t for t in table_meta_list if t.name.lower() == table_to_check.lower()]
+
+            if filtered_meta:
+                table_meta = filtered_meta[0]
+                modate = table_meta.lastModified
+                modate_date = modate.date()
+                modate_time_seconds = modate.hour * 3600 + modate.minute * 60 + modate.second + modate.microsecond / 1e6
+                
+                mo_date_dt = datetime.strptime(mo_date, '%Y-%m-%d').date()
+
+                if modate_date > mo_date_dt or (modate_date == mo_date_dt and modate_time_seconds > 72660.739):
+                    exist = 1
+                    # Getting NOBS
+                    nobs = spark.table(f"{db_train_m}.{table_to_check}").count()
+        except Exception as e:
+            print(f"Error checking for table {db_train_m}.{table_to_check}: {e}")
+            exist = 0
+            nobs = 0
+        
+        print(exist)
+        print(nobs)
+
+        promo_table_exists = spark.catalog.tableExists(f"promo.pid_{string2}")
+        if promo_table_exists and (exist != 1 or nobs < 10 or retrain == 'Y'):
+            if Update_M == 'Y':
+                print(f"Archiving coefficients for {string2}")
+                spark.sql(f"DROP TABLE IF EXISTS {db_train_a}.pid_{string2}_coef")
+                if spark.catalog.tableExists(f"{db_train_m}.pid_{string2}_coef"):
+                    df_to_copy = spark.table(f"{db_train_m}.pid_{string2}_coef")
+                    df_to_copy.write.format("delta").mode("overwrite").saveAsTable(f"{db_train_a}.pid_{string2}_coef")
+
+            # Get training start date from Teradata
+            sql_td_query = f"""(
+                SELECT 
+                    CASE WHEN mjr_p_cls_id = '{L2_id}' THEN min_date ELSE CAST('2010-01-01' AS DATE) END AS start_date
+                FROM  dl_cntl_adva.training_date
+                GROUP BY 1
+            ) AS a"""
+            
+            df_start_date = spark.read.format("jdbc") \
+                .option("url", td_url) \
+                .option("dbtable", sql_td_query) \
+                .option("user", td_user) \
+                .option("password", td_password) \
+                .load()
+            
+            train_dt = df_start_date.agg(F.max("start_date")).first()[0]
+            train_dt_str = train_dt.strftime('%Y-%m-%d')
+            
+            # Create temp table for regression
+            df_promo_pid = spark.table(f"promo.pid_{string2}")
+            df_st_inf_flg = spark.table("mtest.st_inf_flg")
+            df_reg_input_base = df_promo_pid.join(df_st_inf_flg, on="ut_id", how="inner")
+
+            # PROC REG WHERE clause translation
+            filter_cond = (F.col("day_dt").isin(['2014-12-25','2015-12-25','2016-12-25','2017-12-25' , '2018-12-25', '2019-12-25', '2020-12-25', '2021-12-25', '2022-12-25']) == False) & \
+                          (F.col("ut_id").between(19, 399)) & \
+                          (F.col("day_dt") > F.lit(train_dt_str))
+
+            if L2_indx == '1' and Update_M == 'N':
+                filter_cond = filter_cond & \
+                    (
+                        (F.col("p_sold_first_dt") <= F.expr(f"date_sub('{LastPrWk}', 724)")) & (F.col("day_dt") <= F.expr(f"date_sub('{LastPrWk}', 364)")) |
+                        (F.col("p_sold_first_dt") > F.expr(f"date_sub('{LastPrWk}', 724)")) & (F.col("day_dt") <= F.expr(f"date_sub('{LastPrWk}', {ValidWeeks*7})"))
+                    )
+            else:
+                filter_cond = filter_cond & (F.col("day_dt") <= F.expr(f"date_sub('{LastPrWk}', {ValidWeeks*7})"))
+
+            df_reg_input = df_reg_input_base.filter(filter_cond)
+
+            # PROC REG model and BY statement translation using Pandas UDF
+            features = [
+                'ntl_log_bse_pr_am', 'ntl_log_bse_promo_dct_pr_am', 'fcl_per_of_yr_id'
+            ] + [f'wk{i}' for i in range(2, 53)] \
+              + [f'dow{i}' for i in range(2, 8)] \
+              + [f'ut{i}' for i in range(19, 325)] \
+              + [
+                'adv_circ_flg', 'adv_mid_wk_flg', 'adv_super_evnt_flg', 'adv_dgtl_circ_flg', 
+                'unadv_flg', 'p_ten_for_ten_flg', 'NY', 'SuperBowlSat', 'DayB4Valentine', 'Valentine',
+                'Easter', 'EasterWk', 'MomSat', 'Mom', 'Memorial', 'MemWkend', 'DadSat', 'Dad', 'JulyFour', 'Labor',
+                'LaborWkEnd', 'LaborFri', 'LaborSat', 'LaborSun', 'Columbus', 'MCC_BLK_OUT', 'PreHalo_Fri', 'PreHalo_Sat',
+                'PreHalo_Sun', 'HalloweenEve', 'HalloweenFri', 'Halloween', 'Veterans', 'FridayB4Turkey', 'SaturdayB4Turkey',
+                'TurkeyWed', 'Turkey', 'BlackFri', 'RedSat', 'DecTwoThree', 'DecTwoSix', 'SunPreXmas', 'XMASEVE',
+                'SUNPNY', 'SATPNY', 'NYEVE'
+              ]
+            
+            label_col = 'ntl_log_mkt_bskt_ut_qt'
+            
+            # Define output schema for the coefficients, mimicking SAS OUTEST
+            schema_fields = [
+                StructField("p_id", StringType()),
+                StructField("_MODEL_", StringType()),
+                StructField("_TYPE_", StringType()),
+                StructField("_DEPVAR_", StringType()),
+                StructField("_RMSE_", DoubleType()),
+                StructField("_ADJR2_", DoubleType()),
+                StructField("Intercept", DoubleType())
+            ] + [StructField(f, DoubleType()) for f in features]
+            
+            outest_schema = StructType(schema_fields)
+
+            def run_grouped_regression(pdf: pd.DataFrame) -> pd.DataFrame:
+                p_id_val = pdf['p_id'].iloc[0]
+                
+                # Drop rows with NaNs in features or label
+                pdf = pdf.dropna(subset=[label_col] + features)
+                
+                if pdf.shape[0] < len(features) + 2: # Check for sufficient data
+                    return pd.DataFrame(columns=[f.name for f in outest_schema.fields])
+
+                X = pdf[features].astype(float)
+                y = pdf[label_col].astype(float)
+                
+                model = LinearRegression()
+                model.fit(X, y)
+                
+                predictions = model.predict(X)
+                residuals = y - predictions
+                rmse = np.sqrt(np.mean(residuals**2))
+                
+                n = len(y)
+                p = X.shape[1]
+                r2 = model.score(X, y)
+                adj_r2 = 1 - (1 - r2) * (n - 1) / (n - p - 1)
+                
+                coef_dict = {
+                    "p_id": p_id_val,
+                    "_MODEL_": "RegDaily",
+                    "_TYPE_": "PARMS",
+                    "_DEPVAR_": label_col,
+                    "_RMSE_": rmse,
+                    "_ADJR2_": adj_r2,
+                    "Intercept": model.intercept_
+                }
+                for i, feature in enumerate(features):
+                    coef_dict[feature] = model.coef_[i]
+                
+                return pd.DataFrame([coef_dict])
+
+            # Ensure all feature columns exist, adding missing ones as null
+            for feature in features:
+                if feature not in df_reg_input.columns:
+                    df_reg_input = df_reg_input.withColumn(feature, F.lit(None))
+            
+            if not df_reg_input.rdd.isEmpty():
+                df_coef_temp = df_reg_input.groupBy("p_id").applyInPandas(run_grouped_regression, schema=outest_schema)
+                df_coef_temp.write.format("delta").mode("overwrite").saveAsTable(f"{db_train_m}.pid_{string2}_coef_temp")
+            else:
+                print(f"No data for p_id groups in {string2} after filtering. Skipping regression.")
+
+        # Post-regression logic
+        coef_cnt = 0
+        temp_coef_table_exists = spark.catalog.tableExists(f"{db_train_m}.pid_{string2}_coef_temp")
+        
+        if temp_coef_table_exists:
+            df_temp_coef = spark.table(f"{db_train_m}.pid_{string2}_coef_temp")
+            coef_cnt = df_temp_coef.count()
+            print(coef_cnt)
+
+            if coef_cnt > 0:
+                # Rename temp table to final table
+                spark.sql(f"DROP TABLE IF EXISTS {db_train_m}.pid_{string2}_coef")
+                spark.sql(f"ALTER TABLE {db_train_m}.pid_{string2}_coef_temp RENAME TO {db_train_m}.pid_{string2}_coef")
+                
+                # Copy coefficients based on conditions
+                if L2_indx == '0' and Update_M == 'N':
+                    train_c_path = f"{fcst_coef}/{type_var}"
+                    db_train_c = train_c_path.replace('/', '_').strip('_')
+                    spark.sql(f"CREATE DATABASE IF NOT EXISTS {db_train_c} LOCATION '{train_c_path}'")
+                    spark.sql(f"DROP TABLE IF EXISTS {db_train_c}.pid_{string2}_coef")
+                    df_to_copy = spark.table(f"{db_train_m}.pid_{string2}_coef")
+                    df_to_copy.write.format("delta").mode("overwrite").saveAsTable(f"{db_train_c}.pid_{string2}_coef")
+
+                if Update_M == 'Y':
+                    train_c_path = f"{fcst_coef}/{type_var}/Train"
+                    db_train_c = train_c_path.replace('/', '_').strip('_')
+                    spark.sql(f"CREATE DATABASE IF NOT EXISTS {db_train_c} LOCATION '{train_c_path}'")
+                    spark.sql(f"DROP TABLE IF EXISTS {db_train_c}.pid_{string2}_coef")
+                    df_to_copy = spark.table(f"{db_train_m}.pid_{string2}_coef")
+                    df_to_copy.write.format("delta").mode("overwrite").saveAsTable(f"{db_train_c}.pid_{string2}_coef")
+
+# Calling the main function
+pids_model_reg_pl(L6=L6_id, LastPrWk=LastPreWeek, ValidWeeks=ValidWks, retrain=train, Update_M=Update, mo_date=mo_dt)
+
+#End-DBShift

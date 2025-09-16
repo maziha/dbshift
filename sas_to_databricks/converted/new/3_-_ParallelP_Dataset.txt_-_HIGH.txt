@@ -1,0 +1,398 @@
+import pyspark.sql.functions as F
+from pyspark.sql import SparkSession
+import datetime
+
+spark = SparkSession.builder.appName("SAS_to_PySpark_Conversion").getOrCreate()
+
+# Global variables from SAS %let statements
+PRODTEST = "PROD"
+FCST_V1 = "/Workspace/SASProjects/salesforecast/1_DemandForecast_Production/SASProgram"
+# Note: The above path is an assumed conversion from the original Windows UNC path.
+
+# This setup block corresponds to the initial environment setup in the SAS script.
+# %run is the Databricks equivalent of %include.
+# The `FCSTCode(...)` syntax is replaced by constructing a path from the FCST_V1 variable.
+print("Setting up environment...")
+# %run f"{FCST_V1}/FolderSetup_SAS2"
+# %run f"{FCST_V1}/DTStamp"
+# The dtstamp macro call is represented by a print statement for logging.
+print("TIMESTAMP: set=Y")
+
+# --- JDBC Connection Properties (Placeholder) ---
+# These would need to be populated with your Teradata connection details,
+# likely sourced from Databricks secrets.
+jdbc_url = "jdbc:teradata://your_teradata_host/database"
+connection_properties = {
+    "user": "your_username",
+    "password": "your_password",
+    "driver": "com.teradata.jdbc.TeraDriver"
+}
+
+# Date filter update logic
+# This translates the PROC SQL EXECUTE (INSERT ... SELECT) BY Teradata.
+# It reads the necessary data, calculates the new row, and appends it.
+print("Updating fcst_update_dtinf control table...")
+sql_query_for_insert = """
+SELECT Current_Date AS upd_date, Max(a.startDate) AS startDate, Max(wk_end_dt) AS endDate, Count(DISTINCT wk_end_dt) AS nweeks
+FROM
+(
+    SELECT max(endDate) + 1 AS startDate
+    FROM fcst_update_dtinf AS a
+) AS a,
+vprod_dim.dt_inf AS b
+WHERE wk_end_dt BETWEEN startDate AND Current_Date
+"""
+try:
+    df_to_insert = spark.read \
+        .format("jdbc") \
+        .option("url", jdbc_url) \
+        .option("dbtable", f"({sql_query_for_insert}) as subq") \
+        .option("user", connection_properties["user"]) \
+        .option("password", connection_properties["password"]) \
+        .load()
+
+    df_to_insert.write \
+        .format("jdbc") \
+        .option("url", jdbc_url) \
+        .option("dbtable", "fcst_update_dtinf") \
+        .option("user", connection_properties["user"]) \
+        .option("password", connection_properties["password"]) \
+        .mode("append") \
+        .save()
+    print("Successfully inserted new date range into fcst_update_dtinf.")
+except Exception as e:
+    print(f"An error occurred during the control table update: {e}")
+
+# This section is a translation of the commented-out SAS code block
+"""
+proc SQL; #&tdcon.;
+EXECUTE 
+(
+	INSERT INTO fcst_update_dtinf
+	SELECT Current_Date AS upd_date, (date '2016-01-01') AS startDate, #Max(wk_end_dt) (date '2020-10-10') AS endDate,Count(DISTINCT wk_end_dt) AS nweeks
+	FROM
+	(
+		SELECT  (date '2016-01-01') AS startDate 
+		FROM  fcst_update_dtinf AS a 
+	) AS a,
+	vprod_dim.dt_inf AS b 
+	
+	WHERE wk_end_dt BETWEEN startDate AND Current_Date
+) BY Teradata;
+"""
+
+# Fetching date variables, equivalent to PROC SQL SELECT ... INTO :macro_vars
+print("Fetching date variables...")
+df_date_vars_raw = spark.read \
+    .format("jdbc") \
+    .option("url", jdbc_url) \
+    .option("dbtable", "adva.fcst_update_dtinf") \
+    .option("user", connection_properties["user"]) \
+    .option("password", connection_properties["password"]) \
+    .load()
+
+df_date_vars_agg = df_date_vars_raw.agg(
+    F.max("startDate").alias("max_start_date"),
+    F.max("endDate").alias("max_end_date")
+)
+
+date_vars_row = df_date_vars_agg.select(
+    F.concat(F.lit("'"), F.date_format(F.col("max_start_date"), "yyyy-MM-dd"), F.lit("'")).alias("st_dt"),
+    F.concat(F.lit("'"), F.date_format(F.col("max_end_date"), "yyyy-MM-dd"), F.lit("'")).alias("end_dt"),
+    F.upper(F.date_format(F.col("max_start_date"), "ddMMMyyyy")).alias("st_dt2"),
+    F.upper(F.date_format(F.col("max_end_date"), "ddMMMyyyy")).alias("end_dt2")
+).first()
+
+MinDt = date_vars_row["st_dt"]
+MaxDt = date_vars_row["end_dt"]
+MinDt_SAS = date_vars_row["st_dt2"]
+MaxDT_SAS = date_vars_row["end_dt2"]
+
+print(MinDt)
+print(MaxDt)
+print(MinDt_SAS)
+print(MaxDT_SAS)
+
+# Translation of commented-out SAS blocks
+"""
+#proc sql; &tdcon.; 
+#drop table adva.MJR_P_CLS_HL_P_CNT;
+#execute (	
+#CREATE SET TABLE DL_CNTL_ADVA.MJR_P_CLS_HL_P_CNT ,FALLBACK ,
+#     NO BEFORE JOURNAL,
+#     NO AFTER JOURNAL,
+#     CHECKSUM = DEFAULT,
+#     DEFAULT MERGEBLOCKRATIO,
+#     MAP = TD_MAP2
+#     (
+#      MJR_P_CLS_ID VARCHAR(15) CHARACTER SET Latin NOT CaseSpecific NOT NULL,
+#      ROW_CNT DECIMAL(18) NOT NULL )
+#UNIQUE PRIMARY INDEX ( MJR_P_CLS_ID )
+#) by teradata;
+
+#proc sql; &tdcon.; 
+#execute(delete from DL_CNTL_ADVA.MJR_P_CLS_HL_P_CNT) by teradata; 
+
+#proc sql; &tdcon.; 
+#execute (	
+#INSERT INTO DL_CNTL_ADVA.MJR_P_CLS_HL_P_CNT
+#SEL MJR_P_CLS_ID, Count(*)
+#		from  
+#		vprod_mds_rplnm.dly_ut_fcst_hm_loc_cap_hst as a
+#		join 
+#		fcst_p_upc_inf as b 
+#			on a.p_id = b.p_id 
+#GROUP BY 1
+#) by teradata;
+
+#proc sql; &tdcon.; 
+#execute (	
+#COLLECT STATISTICS COLUMN (MJR_P_CLS_ID) ON dl_cntl_adva.MJR_P_CLS_HL_P_CNT
+#) by teradata;
+
+#proc sql; &tdcon.; 
+#drop table adva.new_mpk_flg;
+
+#proc sql; &tdcon.;  
+#execute (	
+#CREATE TABLE dl_cntl_adva.new_mpk_flg AS
+#(
+#	SELECT
+#		p.p_id
+#		, b.day_dt
+#		, 1 AS mpk_cpn_flg
+#	
+#	FROM 
+#	(
+#		SEL * 
+#		FROM vmarket_basket.mb_cmkt_promo_id_inf AS a
+#		WHERE a.mperk_ind_flg = 'Y'
+#		AND a.mperk_ofr_tgt_typ_ct = 1
+#	) AS a
+#	
+#	JOIN VPROD_OPTM_PROMO.PROMO_UPC_HST AS c
+#		ON a.cmkt_promo_id = c.cmkt_promo_id
+#	
+#	JOIN vprod.p_upc_p_hcy_inf AS P
+#		ON p.P_upc_id = c.P_UPC_ID 
+#	
+#	JOIN vprod_dim.dt_inf AS b
+#		ON b.DAY_DT BETWEEN cmkt_cpn_dsp_strt_dt AND cmkt_cpn_dsp_end_dt
+#	
+#	WHERE cmkt_cpn_dsp_end_dt GE  date '2015-01-01'
+#	
+#	GROUP BY 1,2,3
+#) WITH DATA UNIQUE PRIMARY INDEX (p_id, day_dt)
+#)by teradata;
+
+#proc sql; #&tdcon.;
+#execute (collect stats dl_cntl_adva.new_mpk_flg INDEX (p_id, day_dt) )by teradata;
+
+#proc sql; &tdcon.; 
+#drop table adva.fcst_hook_flag2;
+
+#execute(
+#create table dl_cntl_adva.fcst_hook_flag2, no fallback as 
+#(
+#					sel day_dt, ut_id,
+#					max(mpk_hook_flg) as mpk_hook_flg , 
+#					max(mcc_hook_flg) as mcc_hook_flg, 
+#					max(bucks_hook_flg) as bucks_hook_flg, 
+#					max(other_hook_flg) as other_hook_flg, 
+#					max(mPk_cpn_flg) as mPk_cpn_flg
+#					from 
+#					 dl_mds_tier3_share.bskt_ad_hst_vw 
+#					 where day_dt ge date '2016-01-01'
+#					 group by 1,2
+# ) with data unique primary index (ut_id, day_dt)
+#)by teradata;
+#execute (collect stats dl_cntl_adva.fcst_hook_flag2 INDEX (ut_id, day_dt) )by teradata;
+"""
+
+# The following blocks translate the parallel 'rsubmit' sections.
+# In Databricks, these are executed sequentially as notebook cells or can be
+# orchestrated for parallel execution using dbutils.notebook.run.
+# This translation represents them as sequential blocks of code.
+
+# --- Start of Daily Dataset Creation ---
+print("--- Starting Daily Dataset Creation (GROCERY) ---")
+print("NOTE: running test for gro")
+# %run f"{FCST_V1}/FolderSetup_SAS2"
+# %run f"{FCST_V1}/DTStamp"
+# %run f"{FCST_V1}/CalcError"
+# %run f"{FCST_V1}/GetFileList"
+L6_id = 'L6-000005'
+# %run f"{FCST_V1}/SASDataset_CreateTable"
+print("TIMESTAMP: End Dataset Grocery")
+
+print("--- Starting Daily Dataset Creation (PETS) ---")
+print("NOTE: running test for pets")
+# %run f"{FCST_V1}/FolderSetup_SAS2"
+# %run f"{FCST_V1}/DTStamp"
+# %run f"{FCST_V1}/CalcError"
+# %run f"{FCST_V1}/GetFileList"
+L6_id = 'L6-000013'
+# %run f"{FCST_V1}/SASDataset_CreateTable"
+# %run f"{FCST_V1}/SortDataset"
+print("TIMESTAMP: End Dataset Pets")
+
+print("--- Starting Daily Dataset Creation (HBC) ---")
+print("NOTE: running test for hbc")
+# %run f"{FCST_V1}/FolderSetup_SAS2"
+# %run f"{FCST_V1}/DTStamp"
+# %run f"{FCST_V1}/CalcError"
+# %run f"{FCST_V1}/GetFileList"
+L6_id = 'L6-000001'
+# %run f"{FCST_V1}/SASDataset_CreateTable"
+print("TIMESTAMP: End Dataset HBC")
+
+# --- Start of Daily Dataset Sorting ---
+print("--- Starting Daily Dataset Sorting (GROCERY Part 1) ---")
+print("NOTE: running test for gro1")
+# %run f"{FCST_V1}/FolderSetup_SAS2"
+# %run f"{FCST_V1}/DTStamp"
+# %run f"{FCST_V1}/CalcError"
+# %run f"{FCST_V1}/GetFileList"
+L6_id = 'L6-000005'
+# %run f"{FCST_V1}/SortDataset"
+print("TIMESTAMP: End Dataset Grocery")
+
+print("--- Starting Daily Dataset Sorting (GROCERY Part 2) ---")
+print("NOTE: running test for gro2")
+# %run f"{FCST_V1}/FolderSetup_SAS2"
+# %run f"{FCST_V1}/DTStamp"
+# %run f"{FCST_V1}/CalcError"
+# %run f"{FCST_V1}/GetFileList"
+L6_id = 'L6-000005'
+# %run f"{FCST_V1}/SortDataset_V2"
+print("TIMESTAMP: End Dataset Gro_Sort")
+
+print("--- Starting Daily Dataset Sorting (HBC Part 1) ---")
+print("NOTE: running test for HBC1")
+# %run f"{FCST_V1}/FolderSetup_SAS2"
+# %run f"{FCST_V1}/DTStamp"
+# %run f"{FCST_V1}/CalcError"
+# %run f"{FCST_V1}/GetFileList"
+L6_id = 'L6-000001'
+# %run f"{FCST_V1}/SortDataset"
+print("TIMESTAMP: End Dataset HBC_Sort")
+
+print("--- Starting Daily Dataset Sorting (HBC Part 2) ---")
+print("NOTE: running test for HBC2")
+# %run f"{FCST_V1}/FolderSetup_SAS2"
+# %run f"{FCST_V1}/DTStamp"
+# %run f"{FCST_V1}/CalcError"
+# %run f"{FCST_V1}/GetFileList"
+L6_id = 'L6-000001'
+# %run f"{FCST_V1}/SortDataset_V2"
+print("TIMESTAMP: End Dataset HBC")
+
+# Helper function for sending emails.
+# In a real environment, this would use a library like smtplib and require SMTP server configuration.
+def send_email_notification(to_list, subject, body):
+    print("--- SENDING EMAIL NOTIFICATION ---")
+    print(f"To: {', '.join(to_list)}")
+    print(f"Subject: {subject}")
+    print(f"Body:\n{body}")
+    print("--- END EMAIL NOTIFICATION ---")
+
+# --- Email Notification 1 ---
+email_to_list = ["advanced.analytics@meijer.com", "justin.kaukonen@meijer.com", "aldijana.avdic@meijer.com", "Victor.Vardan@meijer.com", "Thomas.Eldridge@meijer.com", "Loretta.Davidson@meijer.com", "Sarah.George@meijer.com", "Joel.Smith@meijer.com"]
+email_subject = "Dataset Creation Update"
+tdate = datetime.datetime.now().strftime("%d%b%Y").upper()
+email_body = f"""
+<p>Good Morning,</p>
+<p>GROCERY, PETS, & HBC: Daily Datesets Updated; Weekly Datasets will commence</p>
+<p>Have a Great Day!!!</p>
+<p>{tdate}</p>
+"""
+send_email_notification(email_to_list, email_subject, email_body)
+
+# --- Start of Weekly Dataset Update/Sort ---
+print("--- Starting Weekly Dataset Update (GROCERY) ---")
+print("NOTE: running test for task1")
+# %run f"{FCST_V1}/FolderSetup_SAS2"
+# %run f"{FCST_V1}/DTStamp"
+# %run f"{FCST_V1}/CalcError"
+# %run f"{FCST_V1}/GetFileList"
+L6_id = 'L6-000005'
+# %run f"{FCST_V1}/SASDatasets_Wkly"
+print("TIMESTAMP: End Dataset Grocery")
+
+print("--- Starting Weekly Dataset Update (PETS) ---")
+print("NOTE: running test for task2")
+# %run f"{FCST_V1}/FolderSetup_SAS2"
+# %run f"{FCST_V1}/DTStamp"
+# %run f"{FCST_V1}/CalcError"
+# %run f"{FCST_V1}/GetFileList"
+L6_id = 'L6-000013'
+# %run f"{FCST_V1}/SASDatasets_Wkly"
+print("TIMESTAMP: End Dataset task2")
+
+# --- Commented out 'task3' and 'task4' from SAS script ---
+"""
+# %run for task3 (Fresh) would go here
+# %run for task4 (HBC) would go here
+"""
+
+print("TIMESTAMP: End of Dataset Update")
+
+# --- Email Notification 2 ---
+email_to_list_2 = ["advanced.analytics@meijer.com", "aldijana.avdic@meijer.com", "justin.kaukonen@meijer.com", "Victor.Vardan@meijer.com", "Thomas.Eldridge@meijer.com", "Loretta.Davidson@meijer.com", "Sarah.George@meijer.com", "Joel.Smith@meijer.com"]
+email_subject_2 = "Dataset Creation Update"
+tdate_2 = datetime.datetime.now().strftime("%d%b%Y").upper()
+email_body_2 = f"""
+<p>Good Morning,</p>
+<p>GROCERY, PETS, & HBC: Weekly Datesets Updated; Regional Dataset Updates will commence</p>
+<p>Have a Great Day!!!</p>
+<p>{tdate_2}</p>
+"""
+send_email_notification(email_to_list_2, email_subject_2, email_body_2)
+
+# --- Start of Regional Dataset Update/Sort ---
+print("--- Starting Regional Dataset Update (GROCERY) ---")
+print("NOTE: running test for task1")
+# %run f"{FCST_V1}/FolderSetup_SAS2"
+# %run f"{FCST_V1}/DTStamp"
+# %run f"{FCST_V1}/CalcError"
+# %run f"{FCST_V1}/GetFileList"
+L6_id = 'L6-000005'
+# %run f"{FCST_V1}/SASDataset_Rgnl"
+print("TIMESTAMP: End Dataset Grocery")
+
+print("--- Starting Regional Dataset Update (PETS) ---")
+print("NOTE: running test for task2")
+# %run f"{FCST_V1}/FolderSetup_SAS2"
+# %run f"{FCST_V1}/DTStamp"
+# %run f"{FCST_V1}/CalcError"
+# %run f"{FCST_V1}/GetFileList"
+L6_id = 'L6-000013'
+# %run f"{FCST_V1}/SASDataset_Rgnl"
+print("TIMESTAMP: End Dataset task2")
+
+# --- Commented out 'task3' and 'task4' from SAS script ---
+"""
+# %run for task3 (Fresh) would go here
+# %run for task4 (HBC) would go here
+"""
+
+print("TIMESTAMP: End of Dataset Update")
+
+# --- Email Notification 3 ---
+email_to_list_3 = ["sarah.george@meijer.com", "justin.kaukonen@meijer.com"]
+email_subject_3 = "Data Check"
+tdate_3 = datetime.datetime.now().strftime("%d%b%Y").upper()
+email_body_3 = f"""
+<p>Good Morning,</p>
+<p>GROCERY & HBC & PETS: Daily, Weekly, and Regional datasets have finished updating.; Datacheck will now commence.</p>
+<p>Have a Great Day!!!</p>
+<p>{tdate_3}</p>
+"""
+send_email_notification(email_to_list_3, email_subject_3, email_body_3)
+
+# --- Final Data Check ---
+print("--- Starting Final Data Check ---")
+# %run f"{FCST_V1}/SASDataCHECK"
+print("TIMESTAMP: End of Dataset Check")
+
+#End-DBShift

@@ -1,0 +1,75 @@
+import pyspark.sql.functions as F
+import sys
+import os
+
+# The L6_id variable is expected to be defined in the execution environment,
+# similar to how the &L6_id macro variable would be defined in SAS.
+# Example: L6_id = 101
+#
+# The JDBC connection properties are also expected to be configured in the
+# Databricks environment (e.g., using secrets).
+# Example:
+# jdbc_url = "jdbc:teradata://your_server/database"
+# connection_properties = {
+#   "user": dbutils.secrets.get(scope="your_scope", key="user"),
+#   "password": dbutils.secrets.get(scope="your_scope", key="password"),
+#   "driver": "com.teradata.jdbc.TeraDriver"
+# }
+
+def pids_model_sort(L6):
+    
+    inner_query = f"(SELECT * FROM dl_cntl_adva.fcst_p_upc_inf WHERE mjr_mds_are_id = {L6}) AS t"
+    
+    df_from_td = spark.read.jdbc(url=jdbc_url, table=inner_query, properties=connection_properties)
+    
+    df_from_td.createOrReplaceTempView("connection_to_teradata")
+    
+    df_l2_info = spark.sql("""
+        SELECT DISTINCT
+            mjr_p_cls_id,
+            L2
+        FROM connection_to_teradata
+        ORDER BY L2 ASC
+    """)
+    
+    l2_tables_to_process = df_l2_info.collect()
+    
+    original_stdout = sys.stdout
+    
+    for j, row in enumerate(l2_tables_to_process, 1):
+        L2_id = row["mjr_p_cls_id"]
+        string2 = row["L2"]
+
+        # This section translates the PROC PRINTTO statement.
+        # The original Windows network path is converted to a DBFS path.
+        # This assumes a mount point is configured for the Sdrive.
+        log_dir = "/dbfs/Sdrive/ShopperMarketing/Analytics/Staff Folders/Aldijana Lelak Avdic/Corp Ad Hoc/SalesForecast/SASLog/Update/Sort/"
+        os.makedirs(log_dir, exist_ok=True)
+        log_file_path = os.path.join(log_dir, f"sort_{string2}_s1.txt")
+        
+        log_file = None
+        try:
+            log_file = open(log_file_path, 'w')
+            sys.stdout = log_file
+
+            print(j)
+            print(string2)
+
+            table_name = f"promo.pid_{string2}"
+
+            if spark.catalog.tableExists(table_name):
+                
+                df_to_sort = spark.table(table_name)
+                
+                df_sorted = df_to_sort.orderBy("p_id", "ut_id", "cldr_day_of_wk_id")
+                
+                df_sorted.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(table_name)
+
+        finally:
+            if log_file:
+                log_file.close()
+            sys.stdout = original_stdout
+
+pids_model_sort(L6=L6_id)
+
+#End-DBShift

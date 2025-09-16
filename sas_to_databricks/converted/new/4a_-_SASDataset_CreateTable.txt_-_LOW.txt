@@ -1,0 +1,206 @@
+import pyspark.sql.functions as F
+from pyspark.sql.types import StringType
+
+# Assume spark session is available as 'spark'
+# --- Configuration Section ---
+# These variables would typically be passed in as arguments or sourced from a config file/widget
+jdbc_url = "jdbc:teradata://your_teradata_host/DATABASE=your_db"
+connection_properties = {
+    "user": "your_username",
+    "password": "your_password",
+    "driver": "com.teradata.jdbc.TeraDriver"
+}
+td_db_name = "DL_CNTL_ADVA"
+
+# Macro parameters from the original SAS script invocation
+L6_id = "some_L6_id" # Example value
+MinDt_SAS = "01JAN2021" # Example value, SAS date format
+MinDT = "2021-01-01" # Example value, SQL date format
+MaxDT = "2022-01-01" # Example value, SQL date format
+
+# --- Dynamic Variable Generation ---
+
+# Fetch holiday column names
+df_holiday_cols = spark.read.jdbc(
+    url=jdbc_url,
+    table="(SELECT ColumnName FROM DBC.ColumnsV WHERE TableName = 'HolidayCalendar' AND DataBaseName = 'DL_CNTL_ADVA' AND ColumnName NOT IN ('DAY_DT', 'JulyFourWKND','JulyFive','JulyTwo','JulyOne', 'FatTues') ORDER BY ColumnId) as holiday_cols",
+    properties=connection_properties
+)
+holiday_dv = ",".join([row.ColumnName.strip() for row in df_holiday_cols.collect()])
+print(f"holiday_dv: {holiday_dv}")
+
+# Fetch dates column names
+df_dates_cols = spark.read.jdbc(
+    url=jdbc_url,
+    table="(SELECT ColumnName FROM DBC.ColumnsV WHERE TableName = 'dates' AND DataBaseName = 'DL_CNTL_ADVA' AND ColumnName <> 'DAY_DT' ORDER BY ColumnId) as dates_cols",
+    properties=connection_properties
+)
+dates_dv = ",".join([row.ColumnName.strip() for row in df_dates_cols.collect()])
+print(f"dates_dv: {dates_dv}")
+
+
+# Define model variable strings
+model_var = """
+		a.ut_id, a.p_id, a.day_dt, a.mjr_p_cls_id, p_sold_first_dt, p_sold_last_dt,
+		p_sell_dur, mkt_bskt_ut_qt, p_bse_pr_am, p_promo_pr_am, atl_p_sold_am, ntl_log_mkt_bskt_ut_qt, ntl_log_bse_pr_am,
+		ntl_log_bse_dct_pr_am, ntl_log_bse_promo_dct_pr_am,
+		cast(adv_circ_flg as smallint) as  adv_circ_flg,
+		cast(adv_mid_wk_flg as smallint) as  adv_mid_wk_flg,
+		cast(adv_super_evnt_flg as smallint) as  adv_super_evnt_flg,
+		cast(adv_dgtl_circ_flg as smallint) as  adv_dgtl_circ_flg,
+		cast(unadv_flg as smallint) as  unadv_flg,
+		cast(pr_drop_flg as smallint) as  pr_drop_flg,
+		cast(p_ten_for_ten_flg as smallint) as  p_ten_for_ten_flg,
+		ut_same_sto_flg, atl_min_temp_val,
+		atl_mean_temp_val, atl_max_temp_val, atl_t_ppt_qt, atl_t_snow_qt,
+		day_bef_ppt_temp_val, day_bef_snow_temp_val, day_aft_ppt_temp_val,
+		day_aft_snow_temp_val
+"""
+
+model_var2 = """
+		a.ut_id, a.p_id, a.day_dt, a.mjr_p_cls_id,
+		coalesce(a.p_sold_first_dt,c.p_sold_first_dt) as p_sold_first_dt ,
+		coalesce(a.p_sold_last_dt,c.p_sold_last_dt) as p_sold_last_dt ,
+		p_sell_dur, mkt_bskt_ut_qt, p_bse_pr_am, p_promo_pr_am, atl_p_sold_am, ntl_log_mkt_bskt_ut_qt, ntl_log_bse_pr_am,
+		ntl_log_bse_dct_pr_am, ntl_log_bse_promo_dct_pr_am,
+		cast(adv_circ_flg as smallint) as  adv_circ_flg,
+		cast(adv_mid_wk_flg as smallint) as  adv_mid_wk_flg,
+		cast(adv_super_evnt_flg as smallint) as  adv_super_evnt_flg,
+		cast(adv_dgtl_circ_flg as smallint) as  adv_dgtl_circ_flg,
+		cast(unadv_flg as smallint) as  unadv_flg,
+		cast(pr_drop_flg as smallint) as  pr_drop_flg,
+		cast(p_ten_for_ten_flg as smallint) as  p_ten_for_ten_flg,
+		ut_same_sto_flg, atl_min_temp_val,
+		atl_mean_temp_val, atl_max_temp_val, atl_t_ppt_qt, atl_t_snow_qt,
+		day_bef_ppt_temp_val, day_bef_snow_temp_val, day_aft_ppt_temp_val,
+		day_aft_snow_temp_val
+"""
+
+def pids_model_sales(L6, min_dt_sas, MinDt_TD, MaxDt_TD):
+    l2_query = f"""
+    (
+        select distinct mjr_p_cls_id, L2
+        from {td_db_name}.fcst_p_upc_inf
+        where mjr_mds_are_id = {L6}
+        order by L2 desc
+    ) as l2_info
+    """
+    df_l2_info = spark.read.jdbc(url=jdbc_url, table=l2_query, properties=connection_properties)
+    l2_list = df_l2_info.collect()
+    nL2 = len(l2_list)
+
+    for i, row in enumerate(l2_list):
+        L2_id = row.mjr_p_cls_id
+        string2 = row.L2
+        j = i + 1
+        print(f"Processing item {j} of {nL2}")
+        print(f"L2_table part: {string2}")
+
+        # Get count for the L2_id
+        cnt_query = f"(select count(*) as cnt from {td_db_name}.MJR_P_CLS_HL_P_CNT where mjr_p_cls_id = '{L2_id}') as cnt_query"
+        cnt_df = spark.read.jdbc(url=jdbc_url, table=cnt_query, properties=connection_properties)
+        cnt = cnt_df.collect()[0]['cnt']
+        print(f"Count for {L2_id} is: {cnt}")
+
+        # Check for existence of table and 'hl_cap' column
+        target_table_name = f"promo.pid_{string2}"
+        table_exists = spark.catalog.tableExists(target_table_name)
+        has_hl_cap = False
+        if table_exists:
+            if 'hl_cap' in spark.table(target_table_name).columns:
+                has_hl_cap = True
+        
+        print(f"Table '{target_table_name}' exists: {table_exists}. Has 'hl_cap': {has_hl_cap}")
+
+        # Construct conditional parts of the SQL query
+        shelf_space_cols = ""
+        shelf_space_join = ""
+        
+        # Simplified condition to add shelf space info
+        if (cnt > 0 or has_hl_cap):
+            shelf_space_cols = """
+			 ,coalesce(HM_LOC_CAP_QT,0) as hl_cap
+			 ,coalesce(ENDCAP_CAP_QT,0) as end_cap
+            """
+            shelf_space_join = f"""
+				 left join 
+				 ( select a.* 
+					from  vprod_mds_rplnm.dly_ut_fcst_hm_loc_cap_hst as a
+					where day_dt between date '{MinDt_TD}' and date '{MaxDt_TD}'
+				 ) as hl
+				 	on a.day_dt = hl.day_dt 
+					and a.ut_id = hl.ut_id 
+					and a.p_id = hl.p_id
+            """
+
+        # Construct the main Teradata passthrough query
+        main_sql_query = f"""
+        select {model_var}
+			 ,cast(coalesce(mpk_hook_flg,0) as smallint) as  mpk_hook_flg
+			 ,cast(coalesce(mcc_hook_flg,0) as smallint) as  mcc_hook_flg
+			 ,cast(coalesce(bucks_hook_flg,0) as smallint) as  bucks_hook_flg
+			 ,cast(coalesce(other_hook_flg,0) as smallint) as  other_hook_flg
+			 ,cast(coalesce(mpk.mPk_cpn_flg,0) as smallint) as  mPk_cpn_flg
+             {shelf_space_cols}
+			 , {dates_dv} , {holiday_dv}
+        from 
+        (
+            select {model_var2}
+            from VPROD_MDS_RPLNM.DLY_UT_P_ANLT_SL_HST as a 
+            join 
+                (select p_id 
+                from {td_db_name}.fcst_p_upc_inf 
+                where mjr_p_cls_id = '{L2_id}'
+                group by 1) as b 
+                on a.p_id = b.p_id 
+            left join {td_db_name}.p_sold_first_dt as c 
+                on a.p_id = c.p_id 
+                and a.ut_id = c.ut_id
+            where day_dt between date '{MinDt_TD}' and date '{MaxDt_TD}'
+        ) as a
+        join 
+        ( select * from {td_db_name}.dates
+            where day_dt between date '{MinDt_TD}' and date '{MaxDt_TD}'
+        ) as d 
+            on a.day_dt  = d.day_dt 
+        join
+        ( select * from {td_db_name}.HolidayCalendar
+            where day_dt between date '{MinDt_TD}' and date '{MaxDt_TD}'
+        ) as hd 
+            on a.day_dt  = hd.day_dt 
+        left join {td_db_name}.fcst_hook_flag2 as hf
+            on a.day_dt = hf.day_dt 
+            and a.ut_id = hf.ut_id
+        LEFT JOIN {td_db_name}.new_mpk_flg AS mpk
+            ON a.p_id = mpk.p_id
+            AND a.day_dt = mpk.day_dt
+        {shelf_space_join}
+        """
+
+        # Execute the query and load data into a DataFrame
+        df_temp = spark.read.jdbc(
+            url=jdbc_url, 
+            table=f"({main_sql_query}) as temp_data", 
+            properties=connection_properties
+        )
+
+        # Cache the DataFrame as it's used multiple times
+        df_temp.cache()
+
+        if df_temp.count() > 0:
+            if table_exists:
+                print(f"Deleting data from {target_table_name} for dates >= {MinDt_TD}")
+                spark.sql(f"DELETE FROM {target_table_name} WHERE day_dt >= '{MinDt_TD}'")
+            
+            print(f"Appending data to {target_table_name}")
+            df_temp.write.format("delta").mode("append").saveAsTable(target_table_name)
+        else:
+            print(f"No new data found for {string2} in the given date range.")
+        
+        df_temp.unpersist()
+
+
+# Invoke the main function
+pids_model_sales(L6=L6_id, min_dt_sas=MinDt_SAS, MinDt_TD=MinDT, MaxDt_TD=MaxDT)
+
+#End-DBShift

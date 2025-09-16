@@ -1,0 +1,316 @@
+import pyspark.sql.functions as F
+from pyspark.sql.types import StructType, StructField, StringType, DoubleType, LongType, DateType
+from pyspark.sql import SparkSession
+from datetime import datetime
+from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.regression import LinearRegression
+import pandas as pd
+
+# It is assumed that 'spark' is an existing SparkSession.
+# The 'tdcon' variable is expected to be a dictionary containing JDBC connection parameters for Teradata,
+# e.g., tdcon = {"url": "jdbc:teradata://...", "user": "...", "password": "...", "driver": "..."}
+
+ModelType = "Reg_PL"
+type_var = "Reg_PL"
+tdate = datetime.now().strftime('%m%d%Y')
+md = datetime.now().day
+
+print(md)
+print(f"today month day is {md}")
+
+
+def pids_model_reg_pl(L6, LastPrWk, ValidWeeks, retrain, Update_M, mo_date, fcst_log, fcst_coef, archive, tdcon_params):
+    
+    # proc printto is for logging and is omitted in favor of standard Databricks logging.
+    
+    # In PySpark, we manage databases/schemas directly instead of using LIBNAMEs.
+    # The logic is to define database names based on the input parameters.
+    
+    train_m_db_base = f"{fcst_coef}/{type_var}"
+    train_a_db_base = f"{archive}/{type_var}"
+    
+    if Update_M == 'Y':
+        train_m_db = train_m_db_base.replace('/', '_') # Using a format suitable for DB names
+        train_a_db = train_a_db_base.replace('/', '_')
+        spark.sql(f"CREATE DATABASE IF NOT EXISTS {train_m_db}")
+        spark.sql(f"CREATE DATABASE IF NOT EXISTS {train_a_db}")
+        ValidWeeks = 0
+    else:
+        train_m_db = f"{train_m_db_base}/Train".replace('/', '_')
+        spark.sql(f"CREATE DATABASE IF NOT EXISTS {train_m_db}")
+
+    now = datetime.now().strftime('%Y-%m-%d')
+    print(now)
+    d = datetime.now().day
+    print(d)
+
+    # Creating l2_data_coef DataFrame from catalog metadata
+    # The SAS code uses dictionary.tables, which is equivalent to spark.catalog
+    all_tables = spark.catalog.listTables(train_m_db)
+    
+    df_tables_info = spark.createDataFrame(all_tables)
+    
+    df_l2_data_coef = df_tables_info.withColumn(
+        "l2", F.substring(F.regexp_replace(F.col("name"), "pid_", ""), 1, 9)
+    ).withColumn(
+        "modate", F.col("lastModified")
+    ).select("l2", "modate")
+
+    df_l2_data_coef.createOrReplaceTempView("l2_data_coef")
+
+    # The following PROC SQL populates macro variables. In PySpark, we'll execute the SQL
+    # and collect the results to the driver to loop over.
+    df_mtest_fcst_p_upc_inf = spark.table("mtest.fcst_p_upc_inf")
+    df_mtest_fcst_seasonal_index = spark.table("mtest.fcst_seasonal_index")
+    df_mtest_model_upd_track_train = spark.table("mtest.model_upd_track_train")
+
+    df_mtest_fcst_p_upc_inf.createOrReplaceTempView("fcst_p_upc_inf")
+    df_mtest_fcst_seasonal_index.createOrReplaceTempView("fcst_seasonal_index")
+    df_mtest_model_upd_track_train.createOrReplaceTempView("model_upd_track_train")
+
+    sql_query_for_l2_info = f"""
+    SELECT
+        a.mjr_p_cls_id,
+        a.L2,
+        TRIM(SUBSTRING(a.mjr_mds_are_nm_tx, 1, 2)) as L6_nm,
+        b.seasonal_indx,
+        c.modate
+    FROM fcst_p_upc_inf AS a
+    LEFT JOIN fcst_seasonal_index AS b ON a.mjr_p_cls_id = b.mjr_p_cls_id
+    LEFT JOIN l2_data_coef AS c ON a.l2 = c.l2
+    INNER JOIN model_upd_track_train AS m ON a.l2 = m.l2
+    WHERE a.mjr_mds_are_id = {L6}
+      AND a.mjr_p_cls_id NOT IN ('L2-010051')
+      AND (m.newdate < '{mo_date}' OR CAST(m.bytes AS BIGINT) <= 131072)
+      AND m.model = '{ModelType}'
+    ORDER BY c.modate ASC
+    """
+    
+    df_l2_info = spark.sql(sql_query_for_l2_info)
+    l2_info_list = df_l2_info.distinct().collect()
+
+    for row in l2_info_list:
+        L2_id = row['mjr_p_cls_id']
+        string2 = row['L2']
+        L2_indx = row['seasonal_indx'] if row['seasonal_indx'] is not None else 0
+        L6_nm = row['L6_nm']
+        
+        # proc printto is omitted
+        
+        # Check for existing, recent, and valid coefficient table
+        exist = 0
+        nobs = 0
+        target_table_name = f"pid_{string2}_coef"
+
+        if spark.catalog.tableExists(train_m_db, target_table_name):
+            try:
+                table_details = spark.catalog.getTable(train_m_db, target_table_name)
+                modate_timestamp = table_details.lastModified.timestamp()
+                mo_date_dt = datetime.strptime(mo_date, '%Y-%m-%d')
+                
+                # SAS timepart 72660.739 is 20:11:00.739
+                mo_date_with_time = mo_date_dt.replace(hour=20, minute=11, second=0)
+                
+                if (table_details.lastModified.date() > mo_date_dt.date()) or \
+                   (table_details.lastModified.date() == mo_date_dt.date() and \
+                    table_details.lastModified > mo_date_with_time):
+                    exist = 1
+                
+                nobs = spark.table(f"{train_m_db}.{target_table_name}").count()
+            except Exception as e:
+                print(f"Could not get details for {train_m_db}.{target_table_name}: {e}")
+                exist = 0
+                nobs = 0
+        
+        print(exist)
+        print(nobs)
+
+        promo_table_exists = spark.catalog.tableExists(f"promo.pid_{string2}")
+        
+        if promo_table_exists and (exist != 1 or nobs < 10 or retrain == 'Y'):
+
+            if Update_M == 'Y':
+                spark.sql(f"DROP TABLE IF EXISTS {train_a_db}.pid_{string2}_coef")
+                if spark.catalog.tableExists(f"{train_m_db}.pid_{string2}_coef"):
+                    df_to_copy = spark.table(f"{train_m_db}.pid_{string2}_coef")
+                    df_to_copy.write.format("delta").mode("overwrite").saveAsTable(f"{train_a_db}.pid_{string2}_coef")
+
+            # Get the training start date from Teradata
+            sql_query_teradata = f"""
+            (SELECT
+                CASE WHEN mjr_p_cls_id = '{L2_id}' THEN min_date ELSE DATE'2010-01-01' END AS start_date
+             FROM dl_cntl_adva.training_date
+             GROUP BY 1)
+            """
+            
+            df_start_date = spark.read.format("jdbc") \
+                .option("url", tdcon_params["url"]) \
+                .option("dbtable", sql_query_teradata) \
+                .option("user", tdcon_params["user"]) \
+                .option("password", tdcon_params["password"]) \
+                .option("driver", tdcon_params["driver"]) \
+                .load()
+
+            train_dt = df_start_date.select(F.max("start_date").alias("max_date")).collect()[0]['max_date']
+            train_dt_str = train_dt.strftime('%d%b%Y')
+
+            # Prepare data for regression
+            df_promo_pid = spark.table(f"promo.pid_{string2}")
+            df_st_inf_flg = spark.table("mtest.st_inf_flg")
+            
+            df_temp_reg_data = df_promo_pid.alias("a").join(
+                df_st_inf_flg.alias("b"),
+                F.col("a.ut_id") == F.col("b.ut_id"),
+                "inner"
+            ).select("a.*", "b.*")
+
+            # Apply filtering logic from the WHERE clause in PROC REG
+            filter_condition = (
+                ~F.col("day_dt").isin(['2014-12-25', '2015-12-25', '2016-12-25', '2017-12-25', '2018-12-25', '2019-12-25', '2020-12-25', '2021-12-25', '2022-12-25']) &
+                (F.col("ut_id").between(19, 399)) &
+                (F.col("day_dt") > F.lit(train_dt_str).cast(DateType()))
+            )
+            
+            last_pr_wk_date = F.to_date(F.lit(str(LastPrWk)), 'yyyyMMdd') # Assuming LastPrWk is like YYYYMMDD
+            
+            if L2_indx == 1 and Update_M == 'N':
+                filter_condition = filter_condition & (
+                    ((F.col("p_sold_first_dt") <= (last_pr_wk_date - F.expr('interval 724 days'))) & (F.col("day_dt") <= (last_pr_wk_date - F.expr('interval 364 days')))) |
+                    ((F.col("p_sold_first_dt") > (last_pr_wk_date - F.expr('interval 724 days'))) & (F.col("day_dt") <= (last_pr_wk_date - F.expr(f'interval {ValidWeeks * 7} days'))))
+                )
+            else:
+                filter_condition = filter_condition & (
+                    F.col("day_dt") <= (last_pr_wk_date - F.expr(f'interval {ValidWeeks * 7} days'))
+                )
+
+            df_reg_input = df_temp_reg_data.filter(filter_condition)
+
+            # Define feature columns for the regression model
+            feature_cols = [
+                'ntl_log_bse_pr_am', 'ntl_log_bse_promo_dct_pr_am', 'fcl_per_of_yr_id'
+            ]
+            feature_cols.extend([f"wk{i}" for i in range(2, 53)])
+            feature_cols.extend([f"dow{i}" for i in range(2, 8)])
+            feature_cols.extend([f"ut{i}" for i in range(19, 325)])
+            feature_cols.extend([
+                'adv_circ_flg', 'adv_mid_wk_flg', 'adv_super_evnt_flg', 'adv_dgtl_circ_flg',
+                'unadv_flg', 'p_ten_for_ten_flg',
+                'NY', 'SuperBowlSat', 'DayB4Valentine', 'Valentine', 'Easter', 'EasterWk',
+                'MomSat', 'Mom', 'Memorial', 'MemWkend', 'DadSat', 'Dad', 'JulyFour', 'Labor',
+                'LaborWkEnd', 'LaborFri', 'LaborSat', 'LaborSun', 'Columbus', 'MCC_BLK_OUT',
+                'PreHalo_Fri', 'PreHalo_Sat', 'PreHalo_Sun', 'HalloweenEve', 'HalloweenFri',
+                'Halloween', 'Veterans', 'FridayB4Turkey', 'SaturdayB4Turkey', 'TurkeyWed',
+                'Turkey', 'BlackFri', 'RedSat', 'DecTwoThree', 'DecTwoSix', 'SunPreXmas',
+                'XMASEVE', 'SUNPNY', 'SATPNY', 'NYEVE'
+            ])
+
+            # Ensure all feature columns exist, fill nulls with 0
+            for col_name in feature_cols:
+                if col_name not in df_reg_input.columns:
+                    df_reg_input = df_reg_input.withColumn(col_name, F.lit(0))
+            
+            df_reg_input = df_reg_input.fillna(0, subset=feature_cols)
+
+            # Using VectorAssembler to prepare data for MLlib
+            assembler = VectorAssembler(inputCols=feature_cols, outputCol="features", handleInvalid="skip")
+            df_assembled = assembler.transform(df_reg_input)
+
+            # Train a model for each p_id. This is a complex pattern.
+            # A common way is to loop or use a Pandas UDF.
+            # Here we loop over distinct p_ids.
+            
+            p_ids = [row['p_id'] for row in df_assembled.select("p_id").distinct().collect()]
+            
+            all_coeffs_list = []
+
+            for p_id in p_ids:
+                df_pid_data = df_assembled.filter(F.col("p_id") == p_id)
+                
+                if df_pid_data.count() > len(feature_cols): # Need more rows than features
+                    try:
+                        lr = LinearRegression(featuresCol="features", labelCol="ntl_log_mkt_bskt_ut_qt")
+                        lr_model = lr.fit(df_pid_data)
+                        
+                        summary = lr_model.summary
+                        adj_rsq = summary.r2adj
+
+                        # Create a row that mimics the SAS OUTEST format
+                        coeff_row = {
+                            'p_id': p_id,
+                            '_MODEL_': 'RegDaily',
+                            '_TYPE_': 'PARMS',
+                            '_DEPVAR_': 'ntl_log_mkt_bskt_ut_qt',
+                            'INTERCEPT': lr_model.intercept,
+                            '_P_': None,  # Placeholder for p-values if needed
+                            '_EDF_': None,
+                            '_RMSE_': summary.rootMeanSquaredError,
+                            '_RSQ_': summary.r2,
+                            '_ADJRSQ_': adj_rsq
+                        }
+                        
+                        for i, name in enumerate(feature_cols):
+                            coeff_row[name] = lr_model.coefficients[i]
+                            
+                        all_coeffs_list.append(coeff_row)
+                    except Exception as e:
+                        print(f"Could not train model for p_id {p_id}: {e}")
+
+            if all_coeffs_list:
+                df_coef_temp = spark.createDataFrame(pd.DataFrame(all_coeffs_list))
+                df_coef_temp.createOrReplaceTempView(f"pid_{string2}_coef_temp")
+            else:
+                df_coef_temp = None
+
+            
+            coef_cnt = 0
+            if df_coef_temp is not None:
+                coef_cnt = df_coef_temp.count()
+
+            print(coef_cnt)
+            
+            if df_coef_temp is not None and coef_cnt > 0:
+                # Drop old table and save the new one
+                spark.sql(f"DROP TABLE IF EXISTS {train_m_db}.pid_{string2}_coef")
+                df_coef_temp.write.format("delta").mode("overwrite").saveAsTable(f"{train_m_db}.pid_{string2}_coef")
+                
+                # Logic for copying coefficients based on conditions
+                if L2_indx == 0 and Update_M == 'N':
+                    train_c_db = f"{fcst_coef}/{type_var}".replace('/', '_')
+                    spark.sql(f"CREATE DATABASE IF NOT EXISTS {train_c_db}")
+                    spark.sql(f"DROP TABLE IF EXISTS {train_c_db}.pid_{string2}_coef")
+                    df_coef_temp.write.format("delta").mode("overwrite").saveAsTable(f"{train_c_db}.pid_{string2}_coef")
+                    
+                if Update_M == 'Y':
+                    train_c_db = f"{fcst_coef}/{type_var}/Train".replace('/', '_')
+                    spark.sql(f"CREATE DATABASE IF NOT EXISTS {train_c_db}")
+                    spark.sql(f"DROP TABLE IF EXISTS {train_c_db}.pid_{string2}_coef")
+                    df_coef_temp.write.format("delta").mode("overwrite").saveAsTable(f"{train_c_db}.pid_{string2}_coef")
+
+# The SAS code calls the macro at the end. In Python, this would be the main execution block.
+# The calling parameters like &L6_id, &LastPreWeek etc. are assumed to be defined.
+# Example call (these variables would need to be set from a config or another process):
+# L6_id = "some_l6_id"
+# LastPreWeek = "some_date"
+# ValidWks = 4
+# train = 'N'
+# Update = 'N'
+# mo_dt = '2023-01-01'
+# fcst_log_path = "/path/to/logs"
+# fcst_coef_path = "/path/to/coef"
+# archive_path = "/path/to/archive"
+# td_params = {"url": "...", "user": "...", "password": "...", "driver": "..."}
+#
+# pids_model_reg_pl(
+#     L6=L6_id,
+#     LastPrWk=LastPreWeek,
+#     ValidWeeks=ValidWks,
+#     retrain=train,
+#     Update_M=Update,
+#     mo_date=mo_dt,
+#     fcst_log=fcst_log_path,
+#     fcst_coef=fcst_coef_path,
+#     archive=archive_path,
+#     tdcon_params=td_params
+# )
+
+#End-DBShift

@@ -1,0 +1,259 @@
+import pyspark.sql.functions as F
+from pyspark.sql.types import *
+from datetime import datetime
+import shutil
+
+# This script is a translation of a SAS program.
+# JDBC connection parameters need to be configured for the environment.
+# Example:
+# jdbc_url = "jdbc:teradata://<host>/DATABASE=<db>"
+# connection_properties = {
+#     "user": "<user>",
+#     "password": "<password>",
+#     "driver": "com.teradata.jdbc.TeraDriver"
+# }
+
+# In a real environment, the following lines for JDBC connection would be uncommented and configured.
+# jdbc_url = "your_jdbc_url"
+# td_connection_properties = {"user": "your_user", "password": "your_password", "driver": "com.teradata.jdbc.TeraDriver"}
+
+
+# Macro parameters are initialized based on the example in the SAS code.
+L6_id = 'L6-000001'
+MinDt_SAS = '2017-01-02'
+MaxDt_SAS = '2020-01-01'
+MinDT = '2017-01-02'
+MaxDT = '2020-01-01'
+
+# The SAS code uses a macro variable '&tdcon.' to establish a connection.
+# This is simulated by using spark.read.jdbc for each Teradata query.
+
+# First PROC SQL to get L2 information from Teradata
+sql_get_l2_ids = f"""
+(
+select distinct mjr_p_cls_id, L2, count(distinct mjr_p_cls_id)
+from mtest.fcst_p_upc_inf
+where mjr_mds_are_id = '{L6_id}'
+group by 1, 2
+order by L2 asc
+) as L2_query
+"""
+# In a real environment, this line would be executed:
+# df_l2_info = spark.read.jdbc(url=jdbc_url, table=sql_get_l2_ids, properties=td_connection_properties)
+
+# For a runnable example, a placeholder DataFrame is created.
+l2_schema = StructType([
+    StructField("mjr_p_cls_id", StringType(), True),
+    StructField("L2", StringType(), True),
+])
+df_l2_info = spark.createDataFrame([("P-ID-001", "L2_TABLE_1"), ("P-ID-002", "L2_TABLE_2")], schema=l2_schema)
+
+
+l2_rows = df_l2_info.collect()
+L2_ids = [row['mjr_p_cls_id'] for row in l2_rows]
+L2_table = [row['L2'] for row in l2_rows]
+nL2 = len(l2_rows)
+
+# Drop table mtest.rgnl_ut_cnt
+spark.sql("DROP TABLE IF EXISTS mtest.rgnl_ut_cnt")
+
+# Create table mtest.rgnl_ut_cnt from Teradata
+sql_rgnl_ut_cnt = """
+(
+select day_dt, ut_st_ad, count(distinct(ut_id)) as ut_cnt
+from 
+vprod.ut_inf as a 
+join 
+vprod_dim.dt_inf as b 
+on day_dt ge ut_opn_dt 
+and day_dt le coalesce(ut_cls_dt, current_date+180)
+and day_dt between '20150101' and current_date+180
+and ut_ct = 'MS'
+group by 1,2
+) as rgnl_ut_cnt_query
+"""
+# In a real environment, this line would be executed:
+# df_rgnl_ut_cnt = spark.read.jdbc(url=jdbc_url, table=sql_rgnl_ut_cnt, properties=td_connection_properties)
+# df_rgnl_ut_cnt.write.format("delta").mode("overwrite").saveAsTable("mtest.rgnl_ut_cnt")
+
+# Drop table mtest.scale_ten4ten_hst_l2
+spark.sql("DROP TABLE IF EXISTS mtest.scale_ten4ten_hst_l2")
+
+# Create table mtest.scale_ten4ten_hst_l2 from Teradata
+sql_scale_ten4ten_hst_l2 = f"""
+(select * from dl_cntl_adva.scale_ten4ten_hst2 where day_dt between date '{MinDT}' and date '{MaxDT}') as scale_ten4ten_query
+"""
+# In a real environment, this line would be executed:
+# df_scale_ten4ten_hst_l2 = spark.read.jdbc(url=jdbc_url, table=sql_scale_ten4ten_hst_l2, properties=td_connection_properties)
+# df_scale_ten4ten_hst_l2.write.format("delta").mode("overwrite").saveAsTable("mtest.scale_ten4ten_hst_l2")
+
+# PROC SQL create index is a physical storage directive and is not translated.
+
+# Loop through each L2 category
+for j in range(nL2):
+    L2_id_val = L2_ids[j]
+    string2_val = L2_table[j]
+    
+    print(j + 1)
+    print(string2_val)
+
+    print(f"NOTE: SAS log was being redirected to \\...\\updt_{string2_val}.txt")
+
+    # Check if 'hl_cap' column exists in the source promo table
+    promo_table_name = f"promo.pid_{string2_val}"
+    exist = 0
+    if spark.catalog.tableExists(promo_table_name):
+       if 'hl_cap' in spark.table(promo_table_name).columns:
+           exist = 1
+
+    # Create local temporary view for scale_ten4ten_hst2 filtered by the current L2 class
+    df_scale_ten4ten_hst_l2_base = spark.table("mtest.scale_ten4ten_hst_l2")
+    df_scale_ten4ten_hst_l2_filtered = df_scale_ten4ten_hst_l2_base.filter(F.col("mjr_p_cls_id") == L2_id_val)
+    df_scale_ten4ten_hst_l2_filtered.createOrReplaceTempView("scale_ten4ten_hst2")
+
+    # The SAS logic performs a DELETE and then a conditional CREATE/INSERT.
+    # This is translated into a single, atomic "replace range" operation in Spark.
+    
+    # Dynamically construct the aggregation part for hl_cap based on existence check
+    hl_cap_agg_sql = ""
+    if exist > 0:
+        hl_cap_agg_sql = """
+                ,avg(hl_cap) as hl_cap
+                ,avg(end_cap) as end_cap
+        """
+    
+    # The main aggregation query is built as a string template.
+    # SAS functions like LOG() are replaced with Spark SQL LN().
+    # The 'length=' specifier is removed as Spark manages types differently.
+    main_sql_query = f"""
+        select r.UT_ST_Ad
+                , a.P_ID
+                , a.DAY_DT
+                , min(a.MJR_P_CLS_ID) as MJR_P_CLS_ID
+                , min(P_SOLD_FIRST_DT) as P_SOLD_FIRST_DT
+                , max(P_SOLD_LAST_DT) as P_SOLD_LAST_DT
+                , max(P_SELL_DUR) as P_SELL_DUR
+                , sum(MKT_BSKT_UT_QT) as MKT_BSKT_UT_QT
+                , avg(P_BSE_PR_AM) as P_BSE_PR_AM
+                , case when sum(mkt_bskt_ut_qt) > 0 then sum(P_PROMO_PR_AM*mkt_bskt_ut_qt) / sum(mkt_bskt_ut_qt)
+                       else avg(p_promo_pr_am) end as P_PROMO_PR_AM
+                , case when sum(MKT_BSKT_UT_QT) > 0 then sum(ATL_P_SOLD_AM*mkt_bskt_ut_qt) / sum(mkt_bskt_ut_qt)
+                        else avg(ATL_P_SOLD_AM) end as ATL_P_SOLD_AM
+                , case when sum(mkt_bskt_ut_qt) < 0 then ln(1)
+                        else ln(sum(MKT_BSKT_UT_QT)+1) end as NTL_LOG_MKT_BSKT_UT_QT
+                , ln(avg(P_BSE_PR_AM)) as NTL_LOG_BSE_PR_AM
+                , case when sum(MKT_BSKT_UT_QT) > 0 then ln(sum(ATL_P_SOLD_AM*mkt_bskt_ut_qt) / sum(mkt_bskt_ut_qt))
+                       else ln(avg(ATL_P_SOLD_AM)) end as NTL_LOG_BSE_DCT_PR_AM
+                , case when sum(MKT_BSKT_UT_QT) > 0 then ln(sum(ATL_P_SOLD_AM*mkt_bskt_ut_qt) / sum(mkt_bskt_ut_qt)) - ln(avg(P_BSE_PR_AM))
+                       else ln(avg(ATL_P_SOLD_AM)) - ln(avg(P_BSE_PR_AM)) end as NTL_LOG_BSE_PROMO_DCT_PR_AM
+                , max(adv_circ_flg) as adv_circ_flg
+                , max(adv_mid_wk_flg) as adv_mid_wk_flg
+                , max(adv_super_evnt_flg) as adv_super_evnt_flg
+                , max(adv_dgtl_circ_flg) as adv_dgtl_circ_flg
+                , max(unadv_flg) as unadv_flg
+                , max(pr_drop_flg) as pr_drop_flg
+                , max(p_ten_for_ten_flg) as p_ten_for_ten_flg
+                , max(coalesce(Scale_Flg,0)) as Scale_Flg
+                , max(coalesce(Ten4Ten_Flg,0)) as Ten4Ten_Flg
+                , max(coalesce(featured_pid,0)) as featured_pid
+                , sum(adv_circ_flg) as adv_circ_cnt
+                , sum(adv_mid_wk_flg) as adv_mid_wk_cnt
+                , sum(adv_super_evnt_flg) as adv_super_evnt_cnt
+                , sum(adv_dgtl_circ_flg) as adv_dgtl_circ_cnt
+                , sum(unadv_flg) as unadv_cnt
+                , sum(pr_drop_flg) as pr_drop_cnt
+                , sum(p_ten_for_ten_flg) as p_ten_for_ten_cnt
+                , sum(coalesce(Scale_Flg,0)) as Scale_cnt
+                , sum(coalesce(Ten4Ten_Flg,0)) as Ten4Ten_cnt
+                , sum(coalesce(featured_pid,0)) as featured_cnt
+                , avg(ATL_MIN_TEMP_VAL) as ATL_MIN_TEMP_VAL
+                , avg(ATL_MEAN_TEMP_VAL) as ATL_MEAN_TEMP_VAL
+                , avg(ATL_MAX_TEMP_VAL) as ATL_MAX_TEMP_VAL
+                , avg(ATL_T_PPT_QT) as ATL_T_PPT_QT
+                , avg(ATL_T_SNOW_QT) as ATL_T_SNOW_QT
+                , avg(DAY_BEF_PPT_TEMP_VAL) as DAY_BEF_PPT_TEMP_VAL
+                , avg(DAY_BEF_SNOW_TEMP_VAL) as DAY_BEF_SNOW_TEMP_VAL
+                , avg(DAY_AFT_PPT_TEMP_VAL) as DAY_AFT_PPT_TEMP_VAL
+                , avg(DAY_AFT_SNOW_TEMP_VAL) as DAY_AFT_SNOW_TEMP_VAL
+                , max(mpk_hook_flg) as mpk_hook_flg
+                , max(mcc_hook_flg) as mcc_hook_flg
+                , max(bucks_hook_flg) as bucks_hook_flg
+                , max(other_hook_flg) as other_hook_flg
+                , max(mPk_cpn_flg) as mPk_cpn_flg
+                , sum(mpk_hook_flg) as mpk_hook_cnt
+                , sum(mcc_hook_flg) as mcc_hook_cnt
+                , sum(bucks_hook_flg) as bucks_hook_cnt
+                , sum(other_hook_flg) as other_hook_cnt
+                , sum(mPk_cpn_flg) as mPk_cpn_cnt
+                {hl_cap_agg_sql}
+                , max(FCL_PER_OF_YR_ID) as FCL_PER_OF_YR_ID
+                , max(FCL_WK_OF_YR_ID) as FCL_WK_OF_YR_ID
+                , max(FCL_YR_ID) as FCL_YR_ID
+                , max(july4thFri) as july4thFri
+                , max(july4thSat) as july4thSat
+                , max(wk1) as wk1, max(wk2) as wk2, max(wk3) as wk3, max(wk4) as wk4, max(wk5) as wk5
+                , max(wk6) as wk6, max(wk7) as wk7, max(wk8) as wk8, max(wk9) as wk9, max(wk10) as wk10
+                , max(wk11) as wk11, max(wk12) as wk12, max(wk13) as wk13, max(wk14) as wk14, max(wk15) as wk15
+                , max(wk16) as wk16, max(wk17) as wk17, max(wk18) as wk18, max(wk19) as wk19, max(wk20) as wk20
+                , max(wk21) as wk21, max(wk22) as wk22, max(wk23) as wk23, max(wk24) as wk24, max(wk25) as wk25
+                , max(wk26) as wk26, max(wk27) as wk27, max(wk28) as wk28, max(wk29) as wk29, max(wk30) as wk30
+                , max(wk31) as wk31, max(wk32) as wk32, max(wk33) as wk33, max(wk34) as wk34, max(wk35) as wk35
+                , max(wk36) as wk36, max(wk37) as wk37, max(wk38) as wk38, max(wk39) as wk39, max(wk40) as wk40
+                , max(wk41) as wk41, max(wk42) as wk42, max(wk43) as wk43, max(wk44) as wk44, max(wk45) as wk45
+                , max(wk46) as wk46, max(wk47) as wk47, max(wk48) as wk48, max(wk49) as wk49, max(wk50) as wk50
+                , max(wk51) as wk51, max(wk52) as wk52
+                , max(SunPreXmas) as SunPreXmas, max(RedSat) as RedSat, max(BlackFri) as BlackFri
+                , max(Turkey) as Turkey, max(SaturdayB4Turkey) as SaturdayB4Turkey, max(FridayB4Turkey) as FridayB4Turkey
+                , max(Veterans) as Veterans, max(HalloweenFri) as HalloweenFri, max(Halloween) as Halloween
+                , max(HalloweenEve) as HalloweenEve, max(PreHalo_Sun) as PreHalo_Sun, max(PreHalo_Fri) as PreHalo_Fri
+                , max(Columbus) as Columbus, max(LaborFri) as LaborFri, max(LaborSun) as LaborSun
+                , max(LaborSat) as LaborSat, max(LaborWkEnd) as LaborWkEnd, max(Labor) as Labor
+                , max(Dad) as Dad, max(DadSat) as DadSat, max(MemWkend) as MemWkend, max(Mom) as Mom
+                , max(MomSat) as MomSat, max(EasterWk) as EasterWk, max(Easter) as Easter
+                , max(EasterSat) as EasterSat, max(PresDay) as PresDay, max(ValentineWknd) as ValentineWknd
+                , max(Valentine) as Valentine, max(DayB4Valentine) as DayB4Valentine, max(SuperBowlSat) as SuperBowlSat
+                , max(SuperBowl) as SuperBowl, max(MLK) as MLK, max(NY) as NY, max(JulyFour) as JulyFour
+                , max(HalloweenWkEnd) as HalloweenWkEnd, max(DecTwoThree) as DecTwoThree, max(XMASEVE) as XMASEVE
+                , max(SATPNY) as SATPNY, max(SUNPNY) as SUNPNY, max(Memorial) as Memorial
+                , max(PreHalo_Sat) as PreHalo_Sat, max(TurkeyWed) as TurkeyWed, max(DecTwoSix) as DecTwoSix
+                , max(MCC_BLK_OUT) as MCC_BLK_OUT, max(NYEVE) as NYEVE, max(Ash_Wednesday) as Ash_Wed
+                , max(Lent_Week1) as Lent_Wk1, max(Lent_Week2) as Lent_Wk2, max(Lent_Week3) as Lent_Wk3
+                , max(Lent_Week4) as Lent_Wk4, max(Lent_Week5) as Lent_Wk5, max(Lent_Week6) as Lent_Wk6
+                , max(JulyFourWk) as JulyFourWk
+                , max(rg_IL) as rg_IL, max(rg_KY) as rg_KY, max(rg_MI) as rg_MI, max(rg_OH) as rg_OH, max(rg_WI) as rg_WI
+        from {promo_table_name} as a
+        left join scale_ten4ten_hst2 as p
+            on a.p_id = p.p_id and a.ut_id = p.ut_id and a.day_dt = p.day_dt
+        left join mtest.holidaycalendar_lent as h
+            on a.day_dt = h.day_dt
+        left join mtest.rg_inf_flg as r
+            on a.ut_id = r.ut_id
+        where a.day_dt between date '{MinDt_SAS}' and date '{MaxDt_SAS}'
+        group by 1,2,3
+    """
+
+    # Execute the query to get the new data slice
+    df_newly_aggregated = spark.sql(main_sql_query)
+    
+    region_table_name = f"region.pid_{string2_val}"
+    
+    # Combine with old data if table exists, then overwrite
+    if spark.catalog.tableExists(region_table_name):
+        df_old_data = spark.table(region_table_name)
+        df_to_keep = df_old_data.filter(F.col("day_dt") < F.to_date(F.lit(MinDt_SAS), 'yyyy-MM-dd'))
+        df_final_data = df_to_keep.unionByName(df_newly_aggregated)
+    else:
+        df_final_data = df_newly_aggregated
+
+    # Sort data as per PROC SORT
+    df_final_data_sorted = df_final_data.orderBy("p_id", "ut_st_ad", "day_dt")
+    
+    # Write the final result to the 'region' database
+    df_final_data_sorted.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(region_table_name)
+    
+    # The SAS fcopy is translated as a table copy (read from new table, write to target)
+    df_to_copy = spark.table(region_table_name)
+    rgn_ts_table_name = f"rgn_ts.pid_{string2_val}"
+    df_to_copy.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(rgn_ts_table_name)
+
+#End-DBShift

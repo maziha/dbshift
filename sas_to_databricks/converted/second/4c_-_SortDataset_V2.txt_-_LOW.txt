@@ -1,0 +1,105 @@
+import pyspark.sql.functions as F
+from pyspark.sql import SparkSession
+
+# This is a placeholder for a Spark Session. In Databricks, 'spark' is automatically available.
+spark = SparkSession.builder.appName("SortDataset").getOrCreate()
+
+# Placeholder for JDBC connection properties, which would be managed securely in a production environment (e.g., Databricks secrets)
+jdbc_url = "jdbc:teradata://your_teradata_host/database"
+connection_properties = {
+  "user": "your_username",
+  "password": "your_password",
+  "driver": "com.teradata.jdbc.TeraDriver"
+}
+
+# Placeholder for the L6_id variable, which is expected to be set in the SAS environment before this script runs.
+L6_id = 'some_l6_id_value'
+
+def pids_model_sort(L6):
+    # This block translates the Teradata passthrough query and the subsequent PROC SQL logic
+    # First, execute the inner query that was inside the 'connection to teradata' block
+    inner_sql_query = f"(SELECT * FROM dl_cntl_adva.fcst_p_upc_inf WHERE mjr_mds_are_id = {L6}) AS teradata_result"
+
+    df_from_td = spark.read \
+        .format("jdbc") \
+        .option("url", jdbc_url) \
+        .option("dbtable", inner_sql_query) \
+        .options(**connection_properties) \
+        .load()
+
+    df_from_td.createOrReplaceTempView("td_results_view")
+
+    # Now, replicate the outer PROC SQL logic that creates the macro variables
+    sql_for_lists = """
+        SELECT DISTINCT
+            mjr_p_cls_id,
+            L2
+        FROM td_results_view
+        ORDER BY L2 DESC
+    """
+    df_lists = spark.sql(sql_for_lists)
+    collected_rows = df_lists.collect()
+
+    L2_ids_list = [row.mjr_p_cls_id for row in collected_rows]
+    L2_table_list = [row.L2 for row in collected_rows]
+    
+    # The '|' separated string is built to match the SAS macro variable for completeness, though direct list iteration is used.
+    L2_ids = "|".join(L2_ids_list)
+    L2_table = "|".join(L2_table_list)
+    
+    sql_for_count = "SELECT count(DISTINCT mjr_p_cls_id) as count FROM td_results_view"
+    df_count = spark.sql(sql_for_count)
+    nL2 = df_count.first()['count']
+    
+    # Translation of PROC PRINTTO
+    print(r'NOTE: SAS PROC PRINTTO redirected log to "\\us.meijer.com\mjrdata\Sdrive\ShopperMarketing\Analytics\Staff Folders\Aldijana Lelak Avdic\Corp Ad Hoc\SalesForecast\SASLog\Update\Sort\second_sort.txt"')
+
+    for j in range(nL2):
+        # Translation of %let L2_id=%scan(...) and %let string2=%scan(...)
+        # This directly translates the SAS logic which may result in an IndexError if nL2 > len(L2_ids_list)
+        try:
+            L2_id = L2_ids_list[j]
+            string2 = L2_table_list[j]
+        except IndexError:
+            # SAS %scan would return a missing value, this mimics that by breaking the loop or continuing
+            print(f"WARN: Index {j} is out of bounds for L2_ids/L2_table lists. This mirrors SAS %scan behavior on a mismatched loop count.")
+            continue
+            
+        # Translation of PROC PRINTTO inside the loop
+        print(fr'NOTE: SAS PROC PRINTTO redirected log to "\\us.meijer.com\mjrdata\Sdrive\ShopperMarketing\Analytics\Staff Folders\Aldijana Lelak Avdic\Corp Ad Hoc\SalesForecast\SASLog\Update\Sort\second_sort_{string2}.txt"')
+
+        # Translation of %put statements
+        print(j + 1)
+        print(string2)
+        
+        table_to_process = f"promo.pid_{string2}"
+        
+        # Translation of %if %sysfunc(exist(...))
+        if spark.catalog.tableExists(table_to_process):
+            
+            # Translation of PROC SQL to check filesize from dictionary.tables
+            normsort = 0
+            try:
+                details_df = spark.sql(f"DESCRIBE DETAIL {table_to_process}")
+                size_in_bytes = details_df.select("sizeInBytes").first()[0]
+                if size_in_bytes is not None and int(size_in_bytes) > 15742926848:
+                    normsort = 1
+            except Exception as e:
+                # If table is not Delta or details can't be fetched, size check fails
+                print(f"Could not get size details for {table_to_process}. Proceeding as if size is not greater than threshold. Error: {e}")
+                normsort = 0
+            
+            if normsort >= 1:
+                # Translation of standard PROC SORT
+                df_to_sort = spark.table(table_to_process)
+                df_sorted = df_to_sort.orderBy("p_id", "ut_id", "cldr_day_of_wk_id")
+                df_sorted.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(table_to_process)
+            else:
+                # Translation of PROC SORT with TAGSORT option. Functionally the same as standard sort in Spark.
+                df_to_sort = spark.table(table_to_process)
+                df_sorted = df_to_sort.orderBy("p_id", "ut_id", "cldr_day_of_wk_id")
+                df_sorted.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(table_to_process)
+
+# Calling the function, which corresponds to the `%pids_model_sort(L6=&L6_id.) ; run;` line in SAS
+pids_model_sort(L6=L6_id)
+#End-DBShift

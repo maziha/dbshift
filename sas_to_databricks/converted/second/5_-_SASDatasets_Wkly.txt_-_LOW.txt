@@ -1,0 +1,302 @@
+from pyspark.sql import SparkSession
+import pyspark.sql.functions as F
+from pyspark.sql.utils import AnalysisException
+
+# --- Boilerplate ---
+# This would typically be in a shared notebook or library
+# For this script, we'll define it here
+# You would need to configure these connection details for your environment
+# jdbc_url = "jdbc:teradata://<your-teradata-host>/DATABASE=<your-db>"
+# connection_properties = {
+#     "user": "<your-user>",
+#     "password": "<your-password>",
+#     "driver": "com.teradata.jdbc.TeraDriver"
+# }
+
+# Initialize Spark Session
+spark = SparkSession.builder.appName("SASDatasets_Wkly_Translation").getOrCreate()
+
+# Assuming these are passed in as parameters or widgets
+L6_id = "some_L6_id"  # Example value
+MinDt_SAS = "2016-01-01" # Example value
+MaxDt_SAS = "2021-05-08" # Example value
+
+def wkly_data(L6, min_dt, max_dt):
+    # This simulates the first PROC SQL with a Teradata connection
+    # The actual query would run against your Teradata instance.
+    # For a runnable example, we will create a dummy DataFrame.
+    # In a real environment, you would use spark.read.jdbc
+    
+    # --- Start of JDBC read block (replace with your actual connection) ---
+    # sql_get_l2 = f"""
+    # (sel * from dl_cntl_adva.fcst_p_upc_inf
+    # where mjr_mds_are_id = {L6}
+    # order by L2 asc) as t
+    # """
+    # df_l2_info_raw = spark.read.jdbc(url=jdbc_url, table=sql_get_l2, properties=connection_properties)
+    
+    # Dummy data for a runnable script
+    l2_info_data = [
+        ("L2-012695", "TABLE_A"), ("L2-013145", "TABLE_B"), 
+        ("L2-013895", "TABLE_C"), ("L2-015442", "TABLE_D")
+    ]
+    df_l2_info_raw = spark.createDataFrame(l2_info_data, ["mjr_p_cls_id", "L2"])
+    
+    df_l2_info_agg = df_l2_info_raw.groupBy("L2").agg(
+        F.collect_list("mjr_p_cls_id").alias("ids_list"),
+        F.countDistinct("mjr_p_cls_id").alias("id_count")
+    ).withColumn("ids_str", F.concat_ws("|", "ids_list"))
+    
+    l2_rows = df_l2_info_agg.select("ids_str", "L2").collect()
+    nL2 = len(l2_rows)
+    # --- End of JDBC read block ---
+
+    j = 0
+    for row in l2_rows:
+        j += 1
+        L2_id = row["ids_str"]
+        string2 = row["L2"]
+
+        print(j)
+        print(string2)
+        
+        # proc printto is an environment command and has no direct translation in PySpark.
+        # Logging is handled by Databricks/Spark's built-in logging mechanisms.
+
+        # Check for column 'hl_cap' existence in promo table
+        exist = 0
+        try:
+            promo_table_name = f"promo.pid_{string2}"
+            if spark.catalog.tableExists(promo_table_name):
+                if 'hl_cap' in spark.table(promo_table_name).columns:
+                    exist = 1
+        except AnalysisException:
+            exist = 0
+        print(exist)
+
+        target_table_exists = spark.catalog.tableExists(f"week.pid_{string2}")
+
+        exist_wk = 0
+        if target_table_exists:
+            # Check for column 'hl_cap' existence in weekly table
+            try:
+                week_table_name = f"week.pid_{string2}"
+                if 'hl_cap' in spark.table(week_table_name).columns:
+                    exist_wk = 1
+            except AnalysisException:
+                exist_wk = 0
+        print(exist_wk)
+
+        if target_table_exists:
+            # Delete records from the target table for the specified date range
+            delete_query = f"""
+            DELETE FROM week.pid_{string2}
+            WHERE wk_end_dt >= '{min_dt}'
+            """
+            spark.sql(delete_query)
+            # The SAS code implies an insert after this, which will be handled below.
+
+        # Dynamically build the hl_cap and end_cap part of the select query
+        hl_cap_sql = ""
+        if exist > 0 and exist_wk > 0:
+            hl_cap_sql = """
+                ,avg(hl_cap) as hl_cap
+                ,avg(end_cap) as end_cap
+            """
+        elif exist <= 0 and exist_wk > 0:
+            hl_cap_sql = """
+                ,0 as hl_cap
+                ,0 as end_cap
+            """
+        
+        main_select_query = f"""
+        SELECT
+            UT_ID,
+            P_ID,
+            WK_END_DT,
+            min(MJR_P_CLS_ID) as MJR_P_CLS_ID,
+            min(P_SOLD_FIRST_DT) as P_SOLD_FIRST_DT,
+            max(P_SOLD_LAST_DT) as P_SOLD_LAST_DT,
+            max(P_SELL_DUR) as P_SELL_DUR,
+            sum(MKT_BSKT_UT_QT) as MKT_BSKT_UT_QT,
+            avg(P_BSE_PR_AM) as P_BSE_PR_AM,
+            CASE WHEN sum(mkt_bskt_ut_qt) > 0 THEN sum(P_PROMO_PR_AM*mkt_bskt_ut_qt) / sum(mkt_bskt_ut_qt)
+                 ELSE avg(p_promo_pr_am) END as P_PROMO_PR_AM,
+            CASE WHEN sum(MKT_BSKT_UT_QT) > 0 THEN sum(ATL_P_SOLD_AM*mkt_bskt_ut_qt) / sum(mkt_bskt_ut_qt)
+                 ELSE avg(ATL_P_SOLD_AM) END as ATL_P_SOLD_AM,
+            CASE WHEN sum(mkt_bskt_ut_qt) < 0 THEN LN(1)
+                 ELSE LN(sum(MKT_BSKT_UT_QT)+1) END as NTL_LOG_MKT_BSKT_UT_QT,
+            LN(avg(P_BSE_PR_AM)) as NTL_LOG_BSE_PR_AM,
+            CASE WHEN sum(MKT_BSKT_UT_QT) > 0 THEN LN(sum(ATL_P_SOLD_AM*mkt_bskt_ut_qt) / sum(mkt_bskt_ut_qt))
+                 ELSE LN(avg(ATL_P_SOLD_AM)) END as NTL_LOG_BSE_DCT_PR_AM,
+            CASE WHEN sum(MKT_BSKT_UT_QT) > 0 THEN LN(sum(ATL_P_SOLD_AM*mkt_bskt_ut_qt) / sum(mkt_bskt_ut_qt)) - LN(avg(P_BSE_PR_AM))
+                 ELSE LN(avg(ATL_P_SOLD_AM)) - LN(avg(P_BSE_PR_AM)) END as NTL_LOG_BSE_PROMO_DCT_PR_AM,
+            max(adv_circ_flg) as adv_circ_flg,
+            max(adv_mid_wk_flg) as adv_mid_wk_flg,
+            max(adv_super_evnt_flg) as adv_super_evnt_flg,
+            max(adv_dgtl_circ_flg) as adv_dgtl_circ_flg,
+            max(unadv_flg) as unadv_flg,
+            max(pr_drop_flg) as pr_drop_flg,
+            max(p_ten_for_ten_flg) as p_ten_for_ten_flg,
+            avg(ATL_MIN_TEMP_VAL) as ATL_MIN_TEMP_VAL,
+            avg(ATL_MEAN_TEMP_VAL) as ATL_MEAN_TEMP_VAL,
+            avg(ATL_MAX_TEMP_VAL) as ATL_MAX_TEMP_VAL,
+            avg(ATL_T_PPT_QT) as ATL_T_PPT_QT,
+            avg(ATL_T_SNOW_QT) as ATL_T_SNOW_QT,
+            avg(DAY_BEF_PPT_TEMP_VAL) as DAY_BEF_PPT_TEMP_VAL,
+            avg(DAY_BEF_SNOW_TEMP_VAL) as DAY_BEF_SNOW_TEMP_VAL,
+            avg(DAY_AFT_PPT_TEMP_VAL) as DAY_AFT_PPT_TEMP_VAL,
+            avg(DAY_AFT_SNOW_TEMP_VAL) as DAY_AFT_SNOW_TEMP_VAL,
+            max(mpk_hook_flg) as mpk_hook_flg,
+            max(mcc_hook_flg) as mcc_hook_flg,
+            max(bucks_hook_flg) as bucks_hook_flg,
+            max(other_hook_flg) as other_hook_flg,
+            max(mPk_cpn_flg) as mPk_cpn_flg
+            {hl_cap_sql}
+            ,max(FCL_PER_OF_YR_ID) as FCL_PER_OF_YR_ID,
+            max(FCL_WK_OF_YR_ID) as FCL_WK_OF_YR_ID,
+            max(FCL_YR_ID) as FCL_YR_ID,
+            max(july4thFri) as july4thFri,
+            max(july4thSat) as july4thSat,
+            max(wk1) as wk1,
+            max(wk2) as wk2,
+            max(wk3) as wk3,
+            max(wk4) as wk4,
+            max(wk5) as wk5,
+            max(wk6) as wk6,
+            max(wk7) as wk7,
+            max(wk8) as wk8,
+            max(wk9) as wk9,
+            max(wk10) as wk10,
+            max(wk11) as wk11,
+            max(wk12) as wk12,
+            max(wk13) as wk13,
+            max(wk14) as wk14,
+            max(wk15) as wk15,
+            max(wk16) as wk16,
+            max(wk17) as wk17,
+            max(wk18) as wk18,
+            max(wk19) as wk19,
+            max(wk20) as wk20,
+            max(wk21) as wk21,
+            max(wk22) as wk22,
+            max(wk23) as wk23,
+            max(wk24) as wk24,
+            max(wk25) as wk25,
+            max(wk26) as wk26,
+            max(wk27) as wk27,
+            max(wk28) as wk28,
+            max(wk29) as wk29,
+            max(wk30) as wk30,
+            max(wk31) as wk31,
+            max(wk32) as wk32,
+            max(wk33) as wk33,
+            max(wk34) as wk34,
+            max(wk35) as wk35,
+            max(wk36) as wk36,
+            max(wk37) as wk37,
+            max(wk38) as wk38,
+            max(wk39) as wk39,
+            max(wk40) as wk40,
+            max(wk41) as wk41,
+            max(wk42) as wk42,
+            max(wk43) as wk43,
+            max(wk44) as wk44,
+            max(wk45) as wk45,
+            max(wk46) as wk46,
+            max(wk47) as wk47,
+            max(wk48) as wk48,
+            max(wk49) as wk49,
+            max(wk50) as wk50,
+            max(wk51) as wk51,
+            max(wk52) as wk52,
+            max(SunPreXmas) as SunPreXmas,
+            max(RedSat) as RedSat,
+            max(BlackFri) as BlackFri,
+            max(Turkey) as Turkey,
+            max(SaturdayB4Turkey) as SaturdayB4Turkey,
+            max(FridayB4Turkey) as FridayB4Turkey,
+            max(Veterans) as Veterans,
+            max(HalloweenFri) as HalloweenFri,
+            max(Halloween) as Halloween,
+            max(HalloweenEve) as HalloweenEve,
+            max(PreHalo_Sun) as PreHalo_Sun,
+            max(PreHalo_Fri) as PreHalo_Fri,
+            max(Columbus) as Columbus,
+            max(LaborFri) as LaborFri,
+            max(LaborSun) as LaborSun,
+            max(LaborSat) as LaborSat,
+            max(LaborWkEnd) as LaborWkEnd,
+            max(Labor) as Labor,
+            max(Dad) as Dad,
+            max(DadSat) as DadSat,
+            max(MemWkend) as MemWkend,
+            max(Mom) as Mom,
+            max(MomSat) as MomSat,
+            max(EasterWk) as EasterWk,
+            max(Easter) as Easter,
+            max(EasterSat) as EasterSat,
+            max(PresDay) as PresDay,
+            max(ValentineWknd) as ValentineWknd,
+            max(Valentine) as Valentine,
+            max(DayB4Valentine) as DayB4Valentine,
+            max(SuperBowlSat) as SuperBowlSat,
+            max(SuperBowl) as SuperBowl,
+            max(MLK) as MLK,
+            max(NY) as NY,
+            max(JulyFour) as JulyFour,
+            max(HalloweenWkEnd) as HalloweenWkEnd,
+            max(DecTwoThree) as DecTwoThree,
+            max(XMASEVE) as XMASEVE,
+            max(SATPNY) as SATPNY,
+            max(SUNPNY) as SUNPNY,
+            max(Memorial) as Memorial,
+            max(PreHalo_Sat) as PreHalo_Sat,
+            max(TurkeyWed) as TurkeyWed,
+            max(DecTwoSix) as DecTwoSix,
+            max(MCC_BLK_OUT) as MCC_BLK_OUT,
+            max(NYEVE) as NYEVE
+        FROM promo.pid_{string2}
+        WHERE day_dt BETWEEN '{min_dt}' AND '{max_dt}'
+        GROUP BY 1, 2, 3
+        """
+
+        # Execute the query to get the new/updated data
+        # This assumes a table 'promo.pid_{string2}' exists for this to run
+        # For a runnable script, we would need to create a dummy source table
+        # spark.sql(f"CREATE DATABASE IF NOT EXISTS promo")
+        # df_dummy_promo_source = ...
+        # df_dummy_promo_source.write.saveAsTable(f"promo.pid_{string2}")
+        
+        # To avoid erroring, we will skip the execution if the source table doesn't exist
+        if not spark.catalog.tableExists(f"promo.pid_{string2}"):
+            print(f"Skipping {string2} as source table promo.pid_{string2} does not exist.")
+            continue
+            
+        df_new_weekly_data = spark.sql(main_select_query)
+
+        # Translation of PROC SORT
+        df_sorted_weekly_data = df_new_weekly_data.orderBy("p_id", "ut_id", "wk_end_dt")
+
+        target_table_name = f"week.pid_{string2}"
+        if not target_table_exists:
+            # Drop is not strictly necessary with overwrite, but mirrors the SAS logic.
+            spark.sql(f"DROP TABLE IF EXISTS {target_table_name}")
+            # CREATE TABLE logic
+            df_sorted_weekly_data.write.format("delta").mode("overwrite").saveAsTable(target_table_name)
+        else:
+            # INSERT INTO logic (append mode)
+            df_sorted_weekly_data.write.format("delta").mode("append").saveAsTable(target_table_name)
+
+        # Translation of PROC COPY
+        df_to_copy = spark.table(target_table_name)
+        
+        promo_ts_table_name = f"promo_ts.pid_{string2}"
+        # DROP is handled by overwrite mode
+        df_to_copy.write.format("delta").mode("overwrite").saveAsTable(promo_ts_table_name)
+
+
+# Call the main function
+wkly_data(L6=L6_id, min_dt=MinDt_SAS, max_dt=MaxDt_SAS)
+
+#End-DBShift

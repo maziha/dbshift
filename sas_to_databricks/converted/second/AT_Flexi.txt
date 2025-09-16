@@ -1,0 +1,1013 @@
+from pyspark.sql import SparkSession, Window
+import pyspark.sql.functions as F
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+
+spark = SparkSession.builder.appName("sas_to_pyspark_translation").getOrCreate()
+
+month = "JAN25"
+newModelsDate = "01FEB2023:00:00:00"
+begin_dpd = "2020-12-01"
+numar_luni_dpd = 49
+
+def generate_column_list(var_name, num_months, start_date_str):
+    start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+    column_list = []
+    for b in range(1, num_months + 1):
+        target_date = start_date + relativedelta(months=b)
+        year = target_date.year
+        month_val = target_date.month
+        if month_val < 10:
+            column_list.append(f"b.{var_name}_{year}_0{month_val}")
+        else:
+            column_list.append(f"b.{var_name}_{year}_{month_val}")
+    return " ," + " ,".join(column_list)
+
+bDPD = generate_column_list("DPD", numar_luni_dpd, begin_dpd)
+bDPD_EBA = generate_column_list("DPD_EBA", numar_luni_dpd, begin_dpd)
+
+print(f"bDPD={bDPD}")
+print(f"bDPD_EBA={bDPD_EBA}")
+
+df_raport_portofoliu = spark.table(f"portof.raport_portofoliu_{month}")
+df_raport_portofoliu.createOrReplaceTempView("raport_portofoliu")
+
+df_flexi = spark.sql("""
+    SELECT
+        DATARAP,
+        CNP,
+        lnnote,
+        codcif,
+        DPD_EBA,
+        CASE WHEN DEFAULT_FLAG_CONT = 1 THEN 'DA' ELSE 'NU' END AS Flag_default,
+        DATE(DEFAULT_START_DATE_ACCOUNT) AS Data_default,
+        PRIMUL_MOTIV_DEFAULT AS MOTIV_DEFAULT,
+        SERVICIUL_DATORIEI_1 AS DPD_sistem,
+        CASE WHEN RD070 = 1 THEN 'DA' ELSE 'NU' END AS Flag_frauda,
+        CASE WHEN RD080 = 1 THEN 'DA' ELSE 'NU' END AS Flag_decedat,
+        DATACORD,
+        urg AS Rating_behaviour,
+        ID_APS,
+        ID_Loanapp,
+        CASE WHEN flag_rest = 'Yes' THEN 'DA' ELSE 'NU' END AS Flag_restructurare,
+        DATE(data_rest) AS Data_restructurare,
+        CASE WHEN flag_cons = 'Yes' THEN 'DA' ELSE 'NU' END AS Flag_consolidare,
+        CASE WHEN DPD_EBA >= 30 THEN 'DA' ELSE 'NU' END AS Flag_30,
+        CASE WHEN DPD_EBA >= 90 THEN 'DA' ELSE 'NU' END AS Flag_90,
+        CASE WHEN flag_extrabilant = 1 THEN 'DA' ELSE 'NU' END AS flag_extrabilant
+    FROM raport_portofoliu
+    WHERE prod3 LIKE 'Flexi%' AND DATACORD >= CAST('2021-01-01 00:00:00' AS TIMESTAMP)
+""")
+
+df_flexi.groupBy("flag_extrabilant").count().show()
+
+df_flexi.createOrReplaceTempView("flexi")
+df_ral_provizioane_el = spark.table(f"proviz.ral_provizioane_el_{month}")
+df_ral_provizioane_el.createOrReplaceTempView("ral_provizioane_el")
+
+df_flexi = spark.sql("""
+    SELECT a.*, b.sold_ifrs_eur
+    FROM flexi a
+    LEFT JOIN ral_provizioane_el b ON a.lnnote = b.lnnote AND a.codcif = b.codcif
+""")
+
+df_flexi = df_flexi.withColumn("Mapare_NPL",
+    F.when(F.col("Flag_default") == 'NU', "1.Non NPL")
+    .when((F.col("Flag_default") == 'DA') & (F.col("DPD_EBA") <= 90), "2.NPL DPD EBA <=90")
+    .when((F.col("Flag_default") == 'DA') & (F.col("DPD_EBA") <= 180), "3.NPL DPD EBA 90-180")
+    .when((F.col("Flag_default") == 'DA') & (F.col("DPD_EBA") > 180), "4.NPL DPD EBA 180+")
+    .otherwise(None)
+)
+df_flexi = df_flexi.withColumn("Bucket_DPD_EBA",
+    F.when(F.col("DPD_EBA").isin(0) | F.col("DPD_EBA").isNull(), '1.Curent')
+    .when(F.col("DPD_EBA") <= 30, '2.(0 - 30]')
+    .when(F.col("DPD_EBA") <= 90, '3.(30 - 90]')
+    .when(F.col("DPD_EBA") <= 180, '4.(90 - 180]')
+    .when(F.col("DPD_EBA") > 180, '5. >180')
+    .otherwise(None)
+)
+
+df_flexi.stat.crosstab("Mapare_NPL", "Bucket_DPD_EBA").show()
+
+df_flexi.createOrReplaceTempView("flexi")
+df_portof_dpd_loans = spark.table("AT.PORTOF_DPD_LOANS")
+df_portof_dpd_loans.createOrReplaceTempView("PORTOF_DPD_LOANS")
+
+df_flexi = spark.sql(f"""
+    SELECT a.* {bDPD}
+    FROM flexi a
+    LEFT JOIN PORTOF_DPD_LOANS b ON a.lnnote = b.lnnote
+""")
+
+df_flexi = df_flexi.withColumn("text_dpd_1mob", F.concat(F.lit("dpd_"), F.year(F.add_months(F.to_date(F.col("datacord")), 1)), F.lit("_"), F.lpad(F.month(F.add_months(F.to_date(F.col("datacord")), 1)), 2, '0')))
+df_flexi = df_flexi.withColumn("text_dpd_2mob", F.concat(F.lit("dpd_"), F.year(F.add_months(F.to_date(F.col("datacord")), 2)), F.lit("_"), F.lpad(F.month(F.add_months(F.to_date(F.col("datacord")), 2)), 2, '0')))
+df_flexi = df_flexi.withColumn("text_dpd_3mob", F.concat(F.lit("dpd_"), F.year(F.add_months(F.to_date(F.col("datacord")), 3)), F.lit("_"), F.lpad(F.month(F.add_months(F.to_date(F.col("datacord")), 3)), 2, '0')))
+
+dpd_cols = [c for c in df_flexi.columns if c.lower().startswith('dpd_20')]
+map_expr = F.create_map(*[item for sublist in [[F.lit(c), F.col(c)] for c in dpd_cols] for item in sublist])
+df_flexi = df_flexi.withColumn("DPD_SISTEM_1MOB", map_expr.getItem(F.col("text_dpd_1mob")).cast("double") + 0)
+df_flexi = df_flexi.withColumn("DPD_SISTEM_2MOB", map_expr.getItem(F.col("text_dpd_2mob")).cast("double") + 0)
+df_flexi = df_flexi.withColumn("DPD_SISTEM_3MOB", map_expr.getItem(F.col("text_dpd_3mob")).cast("double") + 0)
+
+df_flexi = df_flexi.withColumn("Flag_FPD", F.when(F.col("DPD_SISTEM_1MOB") > 0, 'DA').otherwise('NU'))
+df_flexi = df_flexi.withColumn("Flag_F2PD", F.when(F.col("DPD_SISTEM_2MOB") >= 30, 'DA').otherwise('NU'))
+df_flexi = df_flexi.withColumn("Flag_F3PD", F.when(F.col("DPD_SISTEM_3MOB") >= 60, 'DA').otherwise('NU'))
+
+cols_to_drop = [c for c in df_flexi.columns if c.lower().startswith('dpd_20') or c.lower().startswith('text_dpd')]
+df_flexi = df_flexi.drop(*cols_to_drop)
+
+df_flexi.createOrReplaceTempView("flexi")
+df_portof_dpd_eba_all_pi = spark.table("AT.PORTOF_DPD_EBA_ALL_PI")
+df_portof_dpd_eba_all_pi.createOrReplaceTempView("PORTOF_DPD_EBA_ALL_PI")
+
+df_flexi = spark.sql(f"""
+    SELECT a.* {bDPD_EBA}
+    FROM flexi a
+    LEFT JOIN PORTOF_DPD_EBA_ALL_PI b
+    ON a.lnnote = CAST(SPLIT(b.ID_CONTRACT, ' ')[0] AS BIGINT) AND a.codcif = b.CIF_CLIENT
+""")
+
+df_flexi = df_flexi.withColumn("text_dpd_eba_3mob", F.concat(F.lit("dpd_eba_"), F.year(F.add_months(F.to_date(F.col("datacord")), 3)), F.lit("_"), F.lpad(F.month(F.add_months(F.to_date(F.col("datacord")), 3)), 2, '0')))
+df_flexi = df_flexi.withColumn("text_dpd_eba_6mob", F.concat(F.lit("dpd_eba_"), F.year(F.add_months(F.to_date(F.col("datacord")), 6)), F.lit("_"), F.lpad(F.month(F.add_months(F.to_date(F.col("datacord")), 6)), 2, '0')))
+df_flexi = df_flexi.withColumn("text_dpd_eba_12mob", F.concat(F.lit("dpd_eba_"), F.year(F.add_months(F.to_date(F.col("datacord")), 12)), F.lit("_"), F.lpad(F.month(F.add_months(F.to_date(F.col("datacord")), 12)), 2, '0')))
+
+dpd_eba_cols = [c for c in df_flexi.columns if c.lower().startswith('dpd_eba_20')]
+map_expr_eba = F.create_map(*[item for sublist in [[F.lit(c), F.col(c)] for c in dpd_eba_cols] for item in sublist])
+df_flexi = df_flexi.withColumn("DPD_EBA_3MOB", map_expr_eba.getItem(F.col("text_dpd_eba_3mob")).cast("double") + 0)
+df_flexi = df_flexi.withColumn("DPD_EBA_6MOB", map_expr_eba.getItem(F.col("text_dpd_eba_6mob")).cast("double") + 0)
+df_flexi = df_flexi.withColumn("DPD_EBA_12MOB", map_expr_eba.getItem(F.col("text_dpd_eba_12mob")).cast("double") + 0)
+
+df_flexi = df_flexi.withColumn("Flag_30+@3MOB", F.when(F.col("DPD_EBA_3MOB") >= 30, 'DA').otherwise('NU'))
+df_flexi = df_flexi.withColumn("Flag_90+@6MOB", F.when(F.col("DPD_EBA_6MOB") >= 90, 'DA').otherwise('NU'))
+df_flexi = df_flexi.withColumn("Flag_90+@12MOB", F.when(F.col("DPD_EBA_12MOB") >= 90, 'DA').otherwise('NU'))
+
+cols_to_drop_eba = [c for c in df_flexi.columns if c.lower().startswith('dpd_eba_20') or c.lower().startswith('text_dpd')]
+df_flexi = df_flexi.drop(*cols_to_drop_eba)
+
+df_flexi.createOrReplaceTempView("flexi")
+df_cereri_raport_mv = spark.table("cap_lib.cereri_raport_mv")
+df_cereri_raport_mv.createOrReplaceTempView("cereri_raport_mv")
+
+df_APS_FLEXI = spark.sql("""
+    SELECT 
+        ID AS superid,
+        idcerere,
+        cnpsolicitant,
+        dataintrarestatus,
+        datacererii,
+        Educatie,
+        STARECIVILA,
+        SITDOMICILIU,
+        CAPSOCANGJ,
+        FCTPOZ,
+        TIPSOCANG,
+        SECTORANG,
+        Termen_acordat,
+        TIP_REFINANTARE,
+        CODEB_SUPP,
+        CONT_SALARIU,
+        ANGAJATOR,
+        CUIANG,
+        TIP_OFERTA_SEL,
+        EXISTA_ASIGURARE,
+        DOBANDA,
+        VARSTA_SOL,
+        IDUSERSTATUS,
+        CASE WHEN DEROG_FLAG = 1 THEN 'DA' ELSE 'NU' END AS DEROG_FLAG,
+        TIP_DEROGARE,
+        iduser,
+        CASE 
+            WHEN iduser IN ('c997athusr', 'c998wwwusr') THEN 'WWW'
+            WHEN SUBSTRING(Retailer, 1, 4) = '1111' THEN 'DSA RBRO'
+            WHEN SUBSTRING(Retailer, 1, 4) = '2222' THEN 'DSA Lugera'
+            ELSE 'Branch'
+        END AS canal_aps_www,
+        CONCAT_WS('_', LPAD(CAST(MONTH(DATE(dataintrarestatus)) AS STRING), 2, '0'), CAST(YEAR(DATE(dataintrarestatus)) AS STRING)) AS data_apr,
+        suma,
+        SUMA_REFINANTATA,
+        SUMA_SUPLIMENTARE,
+        dataintrarii,
+        DRSUSER,
+        VECHLOCMUNCA AS Months_current_employer,
+        ret_program,
+        ret_desc
+    FROM cereri_raport_mv 
+    WHERE idcerere IN (SELECT id_aps FROM flexi)
+""")
+
+df_APS_FLEXI = df_APS_FLEXI.withColumn("Tip_APR", F.lit(None).cast("string"))
+df_APS_FLEXI = df_APS_FLEXI.withColumn("Tip_APR", F.when(F.col("DEROG_FLAG") == 1, 'Risk (Manual Decision)').otherwise(F.col("Tip_APR")))
+df_APS_FLEXI = df_APS_FLEXI.withColumn("Tip_APR", F.when(F.col("Tip_APR").isNull() & (F.col("IDUSERSTATUS") == 'Automatic Approval'), 'Automated Decision').otherwise(F.col("Tip_APR")))
+df_APS_FLEXI = df_APS_FLEXI.withColumn("Tip_APR", F.when(F.col("Tip_APR").isNull(), 'OPS (Semi Automated)').otherwise(F.col("Tip_APR")))
+df_APS_FLEXI = df_APS_FLEXI.withColumn("Mapare_tenor",
+    F.when(F.col("TERMEN_ACORDAT") < 60, '<60M')
+    .when(F.col("TERMEN_ACORDAT") == 60, '60M')
+    .when(F.col("TERMEN_ACORDAT") > 60, '>60M')
+    .otherwise(None)
+)
+df_APS_FLEXI = df_APS_FLEXI.withColumn("TIP_REFINANTARE2",
+    F.when(F.col("tip_refinantare").isin('Refinantare Externa', 'Refinantare Externa si Interna'), 'Refinantare Externa')
+    .otherwise(F.col("TIP_REFINANTARE"))
+)
+df_APS_FLEXI = df_APS_FLEXI.withColumn("CR_age_dm",
+    F.when(F.col("VARSTA_SOL") < 25, '1.<25')
+    .when((F.col("VARSTA_SOL") >= 25) & (F.col("VARSTA_SOL") < 35), '2.[25;35)')
+    .when(F.col("VARSTA_SOL") >= 35, '3.[35')
+    .otherwise(None)
+)
+df_APS_FLEXI = df_APS_FLEXI.withColumn("Educatie",
+    F.when(F.col("Educatie").isin('Scoala elementara', 'Gimnaziu'), 'Elementary/ Secondary School')
+    .when(F.col("Educatie") == 'Liceu', 'High School')
+    .when(F.col("Educatie").isin('Universitate', 'Studii postuniversitare'), 'University or higher')
+    .otherwise(F.col("Educatie"))
+)
+df_APS_FLEXI = df_APS_FLEXI.withColumn("STARECIVILA",
+    F.when(F.col("STARECIVILA").isin('Casatorit(ambele pers angajate)', 'Casatorit(o pers angajat)'), 'Married')
+    .when(F.col("STARECIVILA").isin('Divortat', 'Vaduv'), 'Others')
+    .when(F.col("STARECIVILA") == 'Necasatorit', 'Single')
+    .otherwise(F.col("STARECIVILA"))
+)
+df_APS_FLEXI = df_APS_FLEXI.withColumn("SITDOMICILIU",
+    F.when(F.col("SITDOMICILIU").isin('Chirias la persoana privata', 'Chirias la stat'), 'Tenant')
+    .when(F.col("SITDOMICILIU") == 'Locuieste cu parintii', 'Living with parents')
+    .when(F.col("SITDOMICILIU").isin('Proprietar/Coproprietar cu ipoteca', 'Proprietar/Coproprietar fara Ipoteca'), 'Owner')
+    .otherwise(F.col("SITDOMICILIU"))
+)
+df_APS_FLEXI = df_APS_FLEXI.withColumn("CAPSOCANGJ",
+    F.when(F.col("CAPSOCANGJ") == 'Institutie publica', 'Public Institution')
+    .when(F.col("CAPSOCANGJ") == 'Persoana fizica autorizata', 'Self-employed')
+    .when(F.col("CAPSOCANGJ") == 'Societate cu capital de stat', 'State owned company')
+    .when(F.col("CAPSOCANGJ") == 'Societate cu capital mixt (roman/strain)', 'Romanian&Foreign owned company')
+    .when(F.col("CAPSOCANGJ") == 'Societate cu capital privat romanesc', 'Romanian owned company')
+    .when(F.col("CAPSOCANGJ") == 'Societate cu capital privat strain', 'Foreign owned company')
+    .when(F.col("CAPSOCANGJ") == '', 'Retired person')
+    .otherwise(F.col("CAPSOCANGJ"))
+)
+df_APS_FLEXI = df_APS_FLEXI.withColumn("FCTPOZ",
+    F.when(F.col("FCTPOZ") == 'Functie de conducere', 'Managing position')
+    .when(F.col("FCTPOZ") == 'Pensionari', 'Retired person')
+    .when(F.col("FCTPOZ").isin('Personal calificat cu studii medii', 'Personal calificat cu studii superioare'), 'Qualified staff')
+    .when(F.col("FCTPOZ") == 'Personal necalificat', 'Unqualified staff')
+    .when(F.col("FCTPOZ") == '', 'Retired person')
+    .otherwise(F.col("FCTPOZ"))
+)
+df_APS_FLEXI = df_APS_FLEXI.withColumn("TIPSOCANG",
+    F.when(F.col("TIPSOCANG").isin('Companii cu mai putin de 20 angajati (altele decat multinationale)', 'Companii cu 20-250 angajati (altele decat multinationale)', 'Companii cu peste 250 angajati (altele decat multinationale)'), 'Companies other than multinationals')
+    .when(F.col("TIPSOCANG") == 'Companii multinationale', 'Multinationals')
+    .when(F.col("TIPSOCANG") == 'Persoana fizica autorizata', 'Self-employed')
+    .when(F.col("TIPSOCANG") == 'Sector bugetar', 'Budget sector')
+    .when(F.col("TIPSOCANG") == '', 'Retired person')
+    .otherwise(F.col("TIPSOCANG"))
+)
+df_APS_FLEXI = df_APS_FLEXI.withColumn("SECTORANG", F.when(F.col("CAPSOCANGJ") == 'Retired person', 'Retired person').otherwise(F.col("SECTORANG")))
+df_APS_FLEXI = df_APS_FLEXI.withColumn("Flag_months_current_employer",
+    F.when(F.col("Months_current_employer").isNull(), '1. N/A')
+    .when(F.col("Months_current_employer") <= 24, '2.<=24M')
+    .when(F.col("Months_current_employer") <= 60, '3.(24M-60M]')
+    .when(F.col("Months_current_employer") > 60, '4.>60M')
+    .otherwise(None)
+)
+
+df_APS_FLEXI = df_APS_FLEXI.withColumn("Flag_preap_presel", F.when(F.col("ret_program").isin(3, 4, 5), 'DA').otherwise('NU'))
+
+df_preap_1 = spark.table("dragosd.PREAP_CREDITE_jan23_STD_F").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_2 = spark.table("dragosd.PREAP_SALARII_jan23").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_3 = spark.table("dragosd.PREAP_CREDITE_mar23_STD_F").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_4 = spark.table("dragosd.PREAP_SALARII_mar23").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_5 = spark.table("dragosd.PREAP_CREDITE_may23_STD_F").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_6 = spark.table("dragosd.PREAP_SALARII_may23").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_7 = spark.table("dragosd.PREAP_CREDITE_jul23_STD_F").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_8 = spark.table("dragosd.PREAP_SALARII_jul23").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_9 = spark.table("dragosd.PREAP_CREDITE_sep23_STD_F").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_10 = spark.table("dragosd.PREAP_SALARII_sep23").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_11 = spark.table("dragosd.PREAP_CREDITE_nov23_STD_F").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_12 = spark.table("dragosd.PREAP_SALARII_nov23").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_13 = spark.table("dragosd.PREAP_CREDITE_jan24_STD_F").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_14 = spark.table("dragosd.PREAP_SALARII_jan24").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_15 = spark.table("dragosd.PREAP_CREDITE_mar24_STD_F").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_16 = spark.table("dragosd.PREAP_SALARII_mar24").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_17 = spark.table("dragosd.PREAP_CREDITE_may24_STD_F").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_18 = spark.table("dragosd.PREAP_SALARII_may24").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_19 = spark.table("dragosd.PREAP_CREDITE_jul24_STD_F").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_20 = spark.table("dragosd.PREAP_SALARII_jul24").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_21 = spark.table("dragosd.PREAP_CREDITE_sep24_STD_F").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_22 = spark.table("dragosd.PREAP_SALARII_sep24").select('cnp', 'data_start', 'data_end', 'limita_cc', 'limita_od', 'suma_flexi')
+df_preap_23 = spark.table("dragosd.BAZA4_INDICATIVE_SEP24_FINAL").select('cnp', 'data_start', 'data_end', 'suma_flexi')
+df_preap_24 = spark.table("dragosd.BAZA3_SAL_SEP24_FINAL").select('cnp', 'data_start', 'data_end', 'limita_cc', 'suma_flexi')
+
+df_preap = df_preap_1.unionByName(df_preap_2, allowMissingColumns=True) \
+    .unionByName(df_preap_3, allowMissingColumns=True) \
+    .unionByName(df_preap_4, allowMissingColumns=True) \
+    .unionByName(df_preap_5, allowMissingColumns=True) \
+    .unionByName(df_preap_6, allowMissingColumns=True) \
+    .unionByName(df_preap_7, allowMissingColumns=True) \
+    .unionByName(df_preap_8, allowMissingColumns=True) \
+    .unionByName(df_preap_9, allowMissingColumns=True) \
+    .unionByName(df_preap_10, allowMissingColumns=True) \
+    .unionByName(df_preap_11, allowMissingColumns=True) \
+    .unionByName(df_preap_12, allowMissingColumns=True) \
+    .unionByName(df_preap_13, allowMissingColumns=True) \
+    .unionByName(df_preap_14, allowMissingColumns=True) \
+    .unionByName(df_preap_15, allowMissingColumns=True) \
+    .unionByName(df_preap_16, allowMissingColumns=True) \
+    .unionByName(df_preap_17, allowMissingColumns=True) \
+    .unionByName(df_preap_18, allowMissingColumns=True) \
+    .unionByName(df_preap_19, allowMissingColumns=True) \
+    .unionByName(df_preap_20, allowMissingColumns=True) \
+    .unionByName(df_preap_21, allowMissingColumns=True) \
+    .unionByName(df_preap_22, allowMissingColumns=True) \
+    .unionByName(df_preap_23, allowMissingColumns=True) \
+    .unionByName(df_preap_24, allowMissingColumns=True)
+
+df_APS_FLEXI.createOrReplaceTempView("APS_FLEXI")
+df_preap.createOrReplaceTempView("preap")
+
+df_preap_aps = spark.sql("""
+    SELECT *
+    FROM APS_FLEXI
+    WHERE cnpsolicitant IN (SELECT cnp FROM preap WHERE suma_flexi IS NOT NULL)
+      AND dataintrarestatus >= CAST('2020-07-22 00:00:00' AS TIMESTAMP)
+""")
+
+df_preap_aps.createOrReplaceTempView("preap_aps")
+
+df_preap_aps = spark.sql("""
+    SELECT a.*, b.data_start, b.data_end
+    FROM preap_aps a
+    LEFT JOIN preap b ON a.cnpsolicitant = b.cnp
+""")
+
+df_preap_aps = df_preap_aps.filter(
+    (F.col("dataintrarestatus") >= F.col("data_start")) &
+    (F.col("dataintrarestatus") <= F.col("data_end"))
+)
+
+df_APS_FLEXI.createOrReplaceTempView("APS_FLEXI")
+df_preap_aps.createOrReplaceTempView("preap_aps")
+
+df_APS_FLEXI = spark.sql("""
+    SELECT DISTINCT a.*,
+           CASE WHEN a.idcerere = b.idcerere THEN 'DA' ELSE 'NU' END AS flag_preap_crm
+    FROM APS_FLEXI a
+    LEFT JOIN preap_aps b ON a.idcerere = b.idcerere
+""")
+
+df_APS_FLEXI = df_APS_FLEXI.withColumn(
+    "Flag_preap_presel",
+    F.when(F.col("flag_preap_crm") == "DA", "DA").otherwise(F.col("Flag_preap_presel"))
+)
+
+df_APS_FLEXI.createOrReplaceTempView("APS_FLEXI")
+df_cursuri_mv = spark.table("cap_lib.cursuri_mv")
+df_cursuri_mv.createOrReplaceTempView("cursuri_mv")
+
+df_APS_FLEXI = spark.sql("""
+    SELECT a.*, b.ECHRATE
+    FROM APS_FLEXI a
+    LEFT JOIN cursuri_mv b ON DATE(a.dataintrarii) = DATE(b.ECHCRRNCYDATE) AND b.ECHCRRNCYNAME = 'EUR'
+""")
+
+eur_row = spark.table(f"proviz.ral_provizioane_EL_{month}").select("eur").first()
+eur_value = eur_row.eur if eur_row else None
+
+df_APS_FLEXI = df_APS_FLEXI.withColumn("ECHRATE", F.when(F.col("ECHRATE").isNull(), eur_value).otherwise(F.col("ECHRATE")))
+df_APS_FLEXI = df_APS_FLEXI.withColumn("suma_eur", F.col("suma") / F.col("ECHRATE"))
+df_APS_FLEXI = df_APS_FLEXI.withColumn("sum_refin_eur", F.col("SUMA_REFINANTATA") / F.col("ECHRATE"))
+df_APS_FLEXI = df_APS_FLEXI.withColumn("sum_Cash_eur", F.col("SUMA_SUPLIMENTARE") / F.col("ECHRATE"))
+
+df_APS_FLEXI = df_APS_FLEXI.withColumn("flag_suma_eur",
+    F.when(F.col("suma_eur") <= 5000, "1.<=5KEUR")
+    .when((F.col("suma_eur") > 5000) & (F.col("suma_eur") <= 10000), "2.5KEUR -10KEUR]")
+    .when((F.col("suma_eur") > 10000) & (F.col("suma_eur") <= 20000), "3.10KEUR 20KEUR]")
+    .when(F.col("suma_eur") > 20000, "4.>20KEUR")
+    .otherwise(None)
+)
+
+df_APS_FLEXI1 = df_APS_FLEXI.withColumn("cod_cc", F.when(F.col("DRSUSER") == "", None).otherwise(F.col("DRSUSER")).cast("integer"))
+
+df_APS_FLEXI1.createOrReplaceTempView("APS_FLEXI1")
+df_ro_retea_rbro = spark.table("ramon.RO_RETEA_RBRO")
+df_ro_retea_rbro.createOrReplaceTempView("RO_RETEA_RBRO")
+
+df_APS_FLEXI1 = spark.sql("""
+    SELECT a.*, b.regiune AS Regiune_retail
+    FROM APS_FLEXI1 a
+    LEFT JOIN RO_RETEA_RBRO b ON a.cod_cc = CAST(b.Cod_CC AS INT)
+""")
+
+df_APS_FLEXI1 = df_APS_FLEXI1.withColumn("Regiune_initiere",
+    F.when(F.col("canal_aps_www") == 'DSA RBRO', 'DSA RBRO')
+    .when(F.col("canal_aps_www") == 'DSA Lugera', 'DSA LUGERA')
+    .when((F.col("Regiune_retail") == '') & F.col("cod_cc").isin(997, 998), 'Digital')
+    .when((F.col("Regiune_retail") == '') & F.col("cod_cc").isin(242, 328), 'CallCenter')
+    .otherwise(F.col("Regiune_retail"))
+)
+
+df_APS_FLEXI1.groupBy("Regiune_initiere").count().show()
+df_APS_FLEXI1.filter(F.col("Regiune_initiere") == '').groupBy("cod_cc").count().show()
+
+df_APS_FLEXI1.createOrReplaceTempView("APS_FLEXI1")
+df_clienti_mv = spark.table("cap_lib.clienti_mv").filter(F.col("tipclient") == 1)
+df_clienti_mv.createOrReplaceTempView("clienti_mv")
+
+df_APS_FLEXI1 = spark.sql("""
+    SELECT a.*, b.NEW_TO_BANK, b.TOP_CLIENT
+    FROM APS_FLEXI1 a
+    LEFT JOIN clienti_mv b ON a.SUPERID = b.SUPERID
+""")
+
+df_APS_FLEXI1 = df_APS_FLEXI1.withColumn("NTB_FLAG",
+    F.when(F.col("NEW_TO_BANK") == "DA", "NTB")
+    .when(F.col("NEW_TO_BANK") == "NU", "Existing")
+    .otherwise(None)
+)
+
+df_APS_FLEXI1.createOrReplaceTempView("APS_FLEXI1")
+df_daprodindicators = spark.table("cap_lib.DAPRODINDICATORS").filter(F.col("dapiactive") == 1)
+df_daprodindicators.createOrReplaceTempView("DAPRODINDICATORS")
+
+df_APS_FLEXI1 = spark.sql("""
+    SELECT a.*,
+        CAST(REGEXP_REPLACE(b.DAPIRATINGNEW, '[a-zA-Z]', '') AS DOUBLE) AS RATING_FINAL,
+        CAST(REGEXP_REPLACE(b.DAPIRATINGCBNEW, '[a-zA-Z]', '') AS DOUBLE) AS RATING_CB,
+        CASE WHEN LENGTH(b.DAPIRATINGNEW) > 6 THEN SUBSTRING(b.DAPIRATINGNEW, 1, 4) ELSE b.DAPIRATINGNEW END AS RATING_FINAL_NEW,
+        CASE WHEN LENGTH(b.DAPIRATINGCBNEW) > 6 THEN SUBSTRING(b.DAPIRATINGCBNEW, 1, 4) ELSE b.DAPIRATINGCBNEW END AS RATING_CB_NEW
+    FROM APS_FLEXI1 a
+    LEFT JOIN DAPRODINDICATORS b ON a.superid = b.superid
+""")
+
+df_APS_FLEXI1.createOrReplaceTempView("APS_FLEXI1")
+df_prod_indc_mv = spark.table("cap_lib.prod_indc_mv")
+df_prod_indc_mv.createOrReplaceTempView("prod_indc_mv")
+
+df_APS_FLEXI1 = spark.sql("""
+    SELECT a.*,
+        b.dtibnr,
+        b.VENIT_CALC_BNR,
+        b.VENIT_CALC_INTERN,
+        b.FLUX_DUAL_MATRIX,
+        b.RATING_FINAL AS RATING_FINAL_OLD,
+        b.RATING_CB AS RATING_CB_OLD
+    FROM APS_FLEXI1 a
+    LEFT JOIN prod_indc_mv b ON a.idcerere = b.RCLRCRDID
+""")
+
+newModelsDate_ts = F.to_timestamp(F.lit(newModelsDate), "ddMMMyyyy:HH:mm:ss")
+df_APS_FLEXI1 = df_APS_FLEXI1.withColumn("RATING_FINAL", F.when(F.col("datacererii") < newModelsDate_ts, F.col("RATING_FINAL_OLD")).otherwise(F.col("RATING_FINAL")))
+df_APS_FLEXI1 = df_APS_FLEXI1.withColumn("RATING_CB", F.when(F.col("datacererii") < newModelsDate_ts, F.col("RATING_CB_OLD")).otherwise(F.col("RATING_CB")))
+df_APS_FLEXI1 = df_APS_FLEXI1.withColumn("RATING_FINAL_NEW", F.when(F.col("datacererii") < newModelsDate_ts, F.col("RATING_FINAL_OLD").cast("string")).otherwise(F.col("RATING_FINAL_NEW")))
+df_APS_FLEXI1 = df_APS_FLEXI1.withColumn("RATING_CB_NEW", F.when(F.col("datacererii") < newModelsDate_ts, F.col("RATING_CB_OLD").cast("string")).otherwise(F.col("RATING_CB_NEW")))
+
+df_APS_FLEXI1 = df_APS_FLEXI1.drop("RATING_FINAL_OLD", "RATING_CB_OLD", "new_to_bank")
+df_APS_FLEXI1 = df_APS_FLEXI1.withColumn("FLUX_DUAL_MATRIX",
+    F.when(F.col("FLUX_DUAL_MATRIX") == 'Matricea A', 'Rating Beh')
+    .when(F.col("FLUX_DUAL_MATRIX") == 'Matricea B', 'Rating Apl')
+    .otherwise(F.col("FLUX_DUAL_MATRIX"))
+)
+df_APS_FLEXI1 = df_APS_FLEXI1.withColumn("Flag_RATING_FINAL_NEW",
+    F.when(F.col("RATING_FINAL") < 2.5, '0.5 - 2')
+    .when((F.col("RATING_FINAL") >= 2.5) & (F.col("RATING_FINAL") < 3.5) & (F.col("RATING_FINAL_NEW") != '3.0B'), '2.5 -3A')
+    .when((F.col("RATING_FINAL") >= 3.5) | (F.col("RATING_FINAL_NEW") == '3.0B'), '>= 3B')
+    .otherwise(None)
+)
+df_APS_FLEXI1 = df_APS_FLEXI1.withColumn("Flag_RATING_CB_NEW",
+    F.when(F.col("RATING_CB").isin(0) | F.col("RATING_CB").isNull(), 'No CB')
+    .when(F.col("RATING_CB") < 2.5, '0.5 - 2')
+    .when((F.col("RATING_CB") >= 2.5) & (F.col("RATING_CB") < 3.5) & (F.col("RATING_CB_NEW") != '3.0B'), '2.5 -3A')
+    .when((F.col("RATING_CB") >= 3.5) | (F.col("RATING_CB_NEW") == '3.0B'), '>= 3B')
+    .otherwise(None)
+)
+df_APS_FLEXI1 = df_APS_FLEXI1.withColumn("categ_DTI_BNR",
+    F.when(F.col("DTIBNR").isNull(), "0.missing")
+    .when(F.col("DTIBNR") < 0.30, "1.DTI < 30%")
+    .when((F.col("DTIBNR") >= 0.30) & (F.col("DTIBNR") <= 0.40), "2.DTI [30% - 40%]")
+    .when(F.col("DTIBNR") > 0.40, "3.DTI > 40%")
+    .otherwise(None)
+)
+df_APS_FLEXI1 = df_APS_FLEXI1.withColumn("categ_venit_ron",
+    F.when(F.col("VENIT_CALC_BNR") < 2000, '1.<2.000')
+    .when((F.col("VENIT_CALC_BNR") >= 2000) & (F.col("VENIT_CALC_BNR") < 3500), '2.[2.000;3.500)')
+    .when((F.col("VENIT_CALC_BNR") >= 3500) & (F.col("VENIT_CALC_BNR") < 5000), '3.[3.500;5.000)')
+    .when((F.col("VENIT_CALC_BNR") >= 5000) & (F.col("VENIT_CALC_BNR") < 7000), '4.[5.000;7.000)')
+    .when((F.col("VENIT_CALC_BNR") >= 7000) & (F.col("VENIT_CALC_BNR") < 10000), '5.[7.000;10.000)')
+    .when(F.col("VENIT_CALC_BNR") >= 10000, '6.>=10.000')
+    .otherwise(None)
+)
+df_APS_FLEXI1 = df_APS_FLEXI1.withColumn("flag_categ_venit_ron",
+    F.when(F.col("VENIT_CALC_BNR") < 3000, '1.<3.000')
+    .when((F.col("VENIT_CALC_BNR") >= 3000) & (F.col("VENIT_CALC_BNR") < 5000), '2.[3.000;5.000)')
+    .when((F.col("VENIT_CALC_BNR") >= 5000) & (F.col("VENIT_CALC_BNR") < 10000), '3.[5.000;10.000)')
+    .when(F.col("VENIT_CALC_BNR") >= 10000, '4.>=10.000')
+    .otherwise(None)
+)
+df_APS_FLEXI1 = df_APS_FLEXI1.withColumn("VENIT_CERERE_EUR", F.col("VENIT_CALC_INTERN") / F.col("ECHRATE"))
+
+superid_list = [row.superid for row in df_APS_FLEXI1.select("superid").distinct().collect()]
+df_liability = spark.table("CAP_LIB.LIABILITY_MV").filter((F.col("TIP_APLICANT") == 1) & F.col("superid").isin(superid_list))
+df_liability = df_liability.select("superid", "TIP_CREDIT_DESC", "BANCA_DESC")
+
+df_liability = df_liability.withColumn("Flexi", F.when((F.col("TIP_CREDIT_DESC") == 'Credit de consum') & (F.col("BANCA_DESC") == 'RAIFFEISEN BANK'), 1).otherwise(None))
+df_liability = df_liability.withColumn("Rate_RBRO", F.when(F.col("BANCA_DESC") == 'RAIFFEISEN BANK', 1).otherwise(None))
+df_liability = df_liability.withColumn("Rate_Oth", F.when(F.col("BANCA_DESC") != 'RAIFFEISEN BANK', 1).otherwise(None))
+
+df_liability.createOrReplaceTempView("liability")
+
+df_liability_sumar = spark.sql("""
+    SELECT superid,
+           MAX(flexi) AS flexi,
+           MAX(Rate_RBRO) AS Rate_RBRO,
+           MAX(Rate_Oth) AS Rate_Oth,
+           SUM(Rate_RBRO) AS Nr_Credite_RBRO
+    FROM liability
+    GROUP BY superid
+""")
+
+df_APS_FLEXI1.createOrReplaceTempView("APS_FLEXI1")
+df_liability_sumar.createOrReplaceTempView("liability_sumar")
+
+df_APS_FLEXI1 = spark.sql("""
+    SELECT a.*,
+           b.Rate_RBRO,
+           b.Rate_Oth,
+           CASE WHEN b.flexi = 1 THEN 'DA' ELSE 'NU' END AS Are_Flexi_Cerere,
+           b.Nr_Credite_RBRO AS Nr_Credite_RBRO_Cerere
+    FROM APS_FLEXI1 a
+    LEFT JOIN liability_sumar b ON a.superid = b.superid
+""")
+
+df_APS_FLEXI1 = df_APS_FLEXI1.withColumn("Situatie_credite_Cerere",
+    F.when((F.col("Rate_RBRO") == 1) & (F.col("Rate_Oth") == 1), 'Are rate la alte banci si Raiffeisen')
+    .when((F.col("Rate_RBRO") == 1) & (F.col("Rate_Oth") != 1), 'Are rate la Raiffeisen')
+    .when((F.col("Rate_RBRO") != 1) & (F.col("Rate_Oth") == 1), 'Are rate doar la alte banci')
+    .when((F.col("Rate_RBRO") != 1) & (F.col("Rate_Oth") != 1), 'Nu are rate deloc')
+    .otherwise(None)
+)
+
+df_liability_refin = spark.table("CAP_LIB.LIABILITY_MV").filter(
+    (F.col("ACCEPTA_REFINANTARE") == 1) &
+    (F.col("BANCA_DESC") != 'RAIFFEISEN BANK') &
+    F.col("superid").isin(superid_list)
+)
+df_liability_refin.createOrReplaceTempView("liability_refin_base")
+
+df_liability_refin = spark.sql("""
+    SELECT superid, MONEDA_CREDIT_DESC, SUM(SOLD_CREDIT) AS SOLD_CREDIT
+    FROM liability_refin_base
+    GROUP BY superid, MONEDA_CREDIT_DESC
+""")
+
+df_liability_refin.createOrReplaceTempView("liability_refin")
+df_APS_FLEXI1.createOrReplaceTempView("APS_FLEXI1")
+
+df_liability_refin = spark.sql("""
+    SELECT a.*, b.DATAINTRARII
+    FROM liability_refin a
+    LEFT JOIN APS_FLEXI1 b ON a.superid = b.superid
+""")
+
+df_liability_refin.createOrReplaceTempView("liability_refin")
+df_cursuri_mv.createOrReplaceTempView("CURSURI_MV")
+
+df_liability_refin = spark.sql("""
+    SELECT a.*, b.ECHRATE, c.ECHRATE AS EUR
+    FROM liability_refin a
+    LEFT JOIN CURSURI_MV b ON a.DATAINTRARII = b.ECHCRRNCYDATE AND a.MONEDA_CREDIT_DESC = b.ECHCRRNCYNAME
+    LEFT JOIN CURSURI_MV c ON a.DATAINTRARII = c.ECHCRRNCYDATE AND c.ECHCRRNCYNAME = 'EUR'
+""")
+
+df_liability_refin = df_liability_refin.withColumn("SOLD_CREDIT_EUR", F.col("SOLD_CREDIT") * F.col("ECHRATE") / F.col("EUR"))
+
+df_liability_refin.createOrReplaceTempView("liability_refin")
+
+df_liability_refin_sum = spark.sql("""
+    SELECT superid, SUM(sold_credit_eur) AS sum_refin_ext_eur
+    FROM liability_refin
+    GROUP BY superid
+""")
+
+df_APS_FLEXI1.createOrReplaceTempView("APS_FLEXI1")
+df_liability_refin_sum.createOrReplaceTempView("liability_refin_sum")
+
+df_APS_FLEXI1 = spark.sql("""
+    SELECT a.*, b.sum_refin_ext_eur
+    FROM APS_FLEXI1 a
+    LEFT JOIN liability_refin_sum b ON a.superid = b.superid
+""")
+
+df_aps_flexi1 = df_APS_FLEXI1.drop("Rate_Oth", "Rate_RBRO")
+df_aps_flexi1 = df_aps_flexi1.withColumn("CR_CL", F.lit('1.Mass'))
+df_aps_flexi1 = df_aps_flexi1.withColumn("CR_CL", F.when((F.col("rating_final") <= 3.0) & (F.col("VENIT_CALC_INTERN") >= 3500), '2.Mass_good').otherwise(F.col("CR_CL")))
+df_aps_flexi1 = df_aps_flexi1.withColumn("CR_CL", F.when(F.col("TOP_CLIENT") == "DA", "3.TOP").otherwise(F.col("CR_CL")))
+df_aps_flexi1 = df_aps_flexi1.withColumn("Type", F.lit(None).cast("string"))
+df_aps_flexi1 = df_aps_flexi1.withColumn("Type", F.when(F.col("RATING_CB").isin(0) | F.col("RATING_CB").isNull(), 'Existing NTM').otherwise(F.col("Type")))
+df_aps_flexi1 = df_aps_flexi1.withColumn("Type", F.when(F.col("NTB_FLAG") == "NTB", 'NTB').otherwise(F.col("Type")))
+df_aps_flexi1 = df_aps_flexi1.withColumn("Type", F.when((F.col("RATING_CB").isin(0) | F.col("RATING_CB").isNull()) & (F.col("NTB_FLAG") == "NTB"), 'NTM&NTB').otherwise(F.col("Type")))
+df_aps_flexi1 = df_aps_flexi1.withColumn("Type", F.when(F.col("Type").isNull(), 'Existing').otherwise(F.col("Type")))
+
+df_oferte = spark.table("CAP_LIB.offers_mv").filter(F.col("superid").isin(superid_list) & (F.col("acceptat") == 'DA'))
+
+df_aps_flexi1.createOrReplaceTempView("aps_flexi1")
+df_oferte.createOrReplaceTempView("oferte")
+
+df_aps_flexi1 = spark.sql("""
+    SELECT a.*, b.TIP_PLAFON_OFERTA, b.DOBANDA AS DOBANDA_OF, b.DOBANDA_PROMO
+    FROM aps_flexi1 a
+    LEFT JOIN oferte b ON a.superid = b.superid
+""")
+
+df_aps_flexi1 = df_aps_flexi1.withColumn("OfferType", F.when(F.col("TIP_PLAFON_OFERTA").isin("ESD", "ESP"), "Exception").otherwise("Standard"))
+df_aps_flexi1 = df_aps_flexi1.withColumn("Job_vs_Employer_Type",
+    F.when(F.col("FCTPOZ") != 'Retired person', F.concat_ws("_", F.col("FCTPOZ"), F.col("TIPSOCANG")))
+    .otherwise(F.col("FCTPOZ"))
+)
+df_aps_flexi1 = df_aps_flexi1.withColumn("DOBANDA", F.when(F.col("DOBANDA").isNull(), F.col("DOBANDA_OF")).otherwise(F.col("DOBANDA")))
+df_aps_flexi1 = df_aps_flexi1.drop("DOBANDA_OF", "DOBANDA_PROMO")
+df_aps_flexi1 = df_aps_flexi1.withColumn("Mapare_rata_dobanda",
+    F.when(F.col("dobanda") >= 11.5, "Dobanda >= 11.5%")
+    .when((F.col("dobanda") >= 10.0) & (F.col("dobanda") < 11.5), "Dobanda [10% - 11.5%)")
+    .when(F.col("dobanda") < 10, "Dobanda <10%")
+    .otherwise(None)
+)
+df_aps_flexi1 = df_aps_flexi1.withColumn("TIP_OFERTA_SEL",
+    F.when(F.col("TIP_OFERTA_SEL").isin('Oferta solicitata pe termen solicitat', 'Oferta solicitata pe termen maxim'), 'Oferta solicitata')
+    .when(F.col("TIP_OFERTA_SEL").isin('Oferta maxima pe termen maxim', 'Oferta maxima pe termen solicitat'), 'Oferta maxima')
+    .otherwise(F.col("TIP_OFERTA_SEL"))
+)
+
+superid_list_feb23 = [row.superid for row in df_aps_flexi1.filter(F.col("DATACERERII") >= F.to_timestamp(F.lit("01FEB2023:00:00:00"), "ddMMMyyyy:HH:mm:ss")).select("superid").distinct().collect()]
+df_sc_map = spark.table("DanM.SC_FLEXI_MAP")
+characteristic_list = [row.DAPSCCHARACTERISTICNAME for row in df_sc_map.select("DAPSCCHARACTERISTICNAME").distinct().collect()]
+df_dascoredcharacteristic = spark.table("cap_lib.DASCOREDCHARACTERISTIC")
+df_dascorecard = spark.table("cap_lib.DASCORECARD")
+
+df_dascoredcharacteristic.createOrReplaceTempView("DASCOREDCHARACTERISTIC")
+df_sc_map.createOrReplaceTempView("SC_FLEXI_MAP")
+df_dascorecard.createOrReplaceTempView("DASCORECARD")
+
+df_Baza_Profil_SC = spark.sql(f"""
+    SELECT a.superid,
+           a.DAPSCBINLABEL,
+           a.DAPSCPARTIALSCORE,
+           d.DAPSSCORECARDNAME,
+           sc.Variable
+    FROM DASCOREDCHARACTERISTIC a
+    LEFT JOIN SC_FLEXI_MAP sc ON a.DAPSCCHARACTERISTICNAME = sc.DAPSCCHARACTERISTICNAME
+    LEFT JOIN DASCORECARD d ON a.superid = d.superid AND a.PARENTID = d.HNCID
+    WHERE a.DAPSCCHARACTERISTICNAME IN ('{"','".join(characteristic_list)}')
+      AND a.superid IN ('{"','".join(superid_list_feb23)}')
+""")
+
+df_Baza_Profil_SC_t = df_Baza_Profil_SC.groupBy("SUPERID").pivot("Variable").agg(F.first("DAPSCPARTIALSCORE"))
+
+print("Frequency counts for transposed score columns:")
+df_Baza_Profil_SC_t.groupBy("sc_AGE").count().show()
+df_Baza_Profil_SC_t.groupBy("sc_Amount_to_Avg_Income_L3M").count().show()
+df_Baza_Profil_SC_t.groupBy("sc_CL_customer_since").count().show()
+df_Baza_Profil_SC_t.groupBy("sc_CL_SA_CA_Bal_change_L6M").count().show()
+df_Baza_Profil_SC_t.groupBy("sc_CL_Times_positive_pay_L12M").count().show()
+df_Baza_Profil_SC_t.groupBy("sc_Job_vs_Employer_Type").count().show()
+df_Baza_Profil_SC_t.groupBy("sc_MONTHS_AT_JOB").count().show()
+df_Baza_Profil_SC_t.groupBy("sc_PI_rec_to_arrears_L12M").count().show()
+df_Baza_Profil_SC_t.groupBy("sc_SALARY_IN_RBRO").count().show()
+df_Baza_Profil_SC_t.groupBy("intercept").count().show()
+
+df_aps_flexi1.createOrReplaceTempView("aps_flexi1")
+df_Baza_Profil_SC_t.createOrReplaceTempView("Baza_Profil_SC_t")
+
+df_aps_flexi2 = spark.sql("""
+    SELECT a.*,
+           t.sc_AGE,
+           t.sc_Amount_to_Avg_Income_L3M,
+           t.sc_CL_customer_since,
+           t.sc_CL_SA_CA_Bal_change_L6M,
+           t.sc_CL_Times_positive_pay_L12M,
+           t.sc_MONTHS_AT_JOB,
+           t.sc_PI_rec_to_arrears_L12M,
+           t.sc_SALARY_IN_RBRO
+    FROM aps_flexi1 a
+    LEFT JOIN Baza_Profil_SC_t t ON a.SUPERID = t.SUPERID
+""")
+
+df_aps_flexi2.createOrReplaceTempView("aps_flexi2")
+spark.table("DanM.SC_FLEXI_MAP_var").createOrReplaceTempView("SC_FLEXI_MAP_var")
+df_aps_flexi2 = spark.sql("""
+    SELECT DISTINCT a.*, s.Segment AS V_sc_AGE
+    FROM aps_flexi2 a
+    LEFT JOIN SC_FLEXI_MAP_var s ON s.SCOR = a.sc_AGE AND s.SC = 'sc_AGE'
+""")
+df_aps_flexi2.groupBy("V_sc_AGE").count().show()
+df_aps_flexi2.createOrReplaceTempView("aps_flexi2")
+df_aps_flexi2 = spark.sql("""
+    SELECT DISTINCT a.*, s.Segment AS V_sc_Amount_to_Avg_Income_L3M
+    FROM aps_flexi2 a
+    LEFT JOIN SC_FLEXI_MAP_var s ON s.SCOR = a.sc_Amount_to_Avg_Income_L3M AND s.SC = 'sc_Amount_to_Avg_Income_L3M'
+""")
+df_aps_flexi2.groupBy("V_sc_Amount_to_Avg_Income_L3M").count().show()
+df_aps_flexi2.createOrReplaceTempView("aps_flexi2")
+df_aps_flexi2 = spark.sql("""
+    SELECT DISTINCT a.*, s.Segment AS V_sc_CL_customer_since
+    FROM aps_flexi2 a
+    LEFT JOIN SC_FLEXI_MAP_var s ON s.SCOR = a.sc_CL_customer_since AND s.SC = 'sc_CL_customer_since'
+""")
+df_aps_flexi2.groupBy("V_sc_CL_customer_since").count().show()
+df_aps_flexi2.createOrReplaceTempView("aps_flexi2")
+df_aps_flexi2 = spark.sql("""
+    SELECT DISTINCT a.*, s.Segment AS V_sc_CL_SA_CA_Bal_change_L6M
+    FROM aps_flexi2 a
+    LEFT JOIN SC_FLEXI_MAP_var s ON s.SCOR = a.sc_CL_SA_CA_Bal_change_L6M AND s.SC = 'sc_CL_SA_CA_Bal_change_L6M'
+""")
+df_aps_flexi2.groupBy("V_sc_CL_SA_CA_Bal_change_L6M").count().show()
+df_aps_flexi2.createOrReplaceTempView("aps_flexi2")
+df_aps_flexi2 = spark.sql("""
+    SELECT DISTINCT a.*, s.Segment AS V_sc_CL_Times_positive_pay_L12M
+    FROM aps_flexi2 a
+    LEFT JOIN SC_FLEXI_MAP_var s ON s.SCOR = a.sc_CL_Times_positive_pay_L12M AND s.SC = 'sc_CL_Times_positive_pay_L12M'
+""")
+df_aps_flexi2.groupBy("V_sc_CL_Times_positive_pay_L12M").count().show()
+df_aps_flexi2.createOrReplaceTempView("aps_flexi2")
+df_aps_flexi2 = spark.sql("""
+    SELECT DISTINCT a.*, s.Segment AS V_sc_MONTHS_AT_JOB
+    FROM aps_flexi2 a
+    LEFT JOIN SC_FLEXI_MAP_var s ON s.SCOR = a.sc_MONTHS_AT_JOB AND s.SC = 'sc_MONTHS_AT_JOB'
+""")
+df_aps_flexi2.groupBy("V_sc_MONTHS_AT_JOB").count().show()
+df_aps_flexi2.createOrReplaceTempView("aps_flexi2")
+df_aps_flexi2 = spark.sql("""
+    SELECT DISTINCT a.*, s.Segment AS V_sc_PI_rec_to_arrears_L12M
+    FROM aps_flexi2 a
+    LEFT JOIN SC_FLEXI_MAP_var s ON s.SCOR = a.sc_PI_rec_to_arrears_L12M AND s.SC = 'sc_PI_rec_to_arrears_L12M'
+""")
+df_aps_flexi2.groupBy("V_sc_PI_rec_to_arrears_L12M").count().show()
+df_aps_flexi2.createOrReplaceTempView("aps_flexi2")
+df_aps_flexi2 = spark.sql("""
+    SELECT DISTINCT a.*, s.Segment AS V_sc_SALARY_IN_RBRO
+    FROM aps_flexi2 a
+    LEFT JOIN SC_FLEXI_MAP_var s ON s.SCOR = a.sc_SALARY_IN_RBRO AND s.SC = 'sc_SALARY_IN_RBRO'
+""")
+df_aps_flexi2.groupBy("V_sc_SALARY_IN_RBRO").count().show()
+
+superid_list_flexi2 = [row.superid for row in df_aps_flexi2.select("superid").distinct().collect()]
+df_cereri_status_mv = spark.table("CAP_LIB.CERERI_STATUS_MV").filter(F.col("superid").isin(superid_list_flexi2))
+df_cereri_status_mv.createOrReplaceTempView("CERERI_STATUS_MV")
+df_prescoring = spark.sql("""
+    SELECT superid, id, IDUSER, IDBRANCH
+    FROM CERERI_STATUS_MV
+    WHERE ETAPATEXT = 'Prospective'
+""")
+
+df_applicationuser = spark.table("cap_lib.APPLICATIONUSER").filter(F.substring(F.col("APPUBRKREPCODE"), 1, 4).isin('3333','4444','5555','6666','7777','8888','9999'))
+df_prescoring.createOrReplaceTempView("prescoring")
+df_applicationuser.createOrReplaceTempView("APPLICATIONUSER")
+df_prescoring = spark.sql("""
+    SELECT DISTINCT a.*,
+           CASE WHEN b.HNCID IS NOT NULL THEN 1 ELSE 0 END AS flag_kiwi
+    FROM prescoring a
+    LEFT JOIN APPLICATIONUSER b ON a.superid = b.HNCID
+""")
+
+df_applicationuser_all = spark.table("cap_lib.APPLICATIONUSER")
+df_prescoring.createOrReplaceTempView("prescoring")
+df_applicationuser_all.createOrReplaceTempView("APPLICATIONUSER_ALL")
+df_prescoring = spark.sql("""
+    SELECT a.*, b.APPUISFROMATHENA
+    FROM prescoring a
+    LEFT JOIN APPLICATIONUSER_ALL b ON a.superid = b.HNCID
+""")
+
+df_prescoring = df_prescoring.withColumn("canal_aps2", F.when(F.col("flag_kiwi") == 1, 'Brokers').otherwise(None))
+df_prescoring = df_prescoring.withColumn("flag_SM", F.when(F.col("APPUISFROMATHENA") > 0, 'DA').otherwise('NU'))
+
+df_aps_flexi2.createOrReplaceTempView("aps_flexi2")
+df_prescoring.createOrReplaceTempView("prescoring")
+df_aps_flexi4 = spark.sql("""
+    SELECT a.*, b.flag_SM, b.canal_aps2
+    FROM aps_flexi2 a
+    LEFT JOIN prescoring b ON a.superid = b.superid
+""")
+
+superid_list_flexi4 = [row.superid for row in df_aps_flexi4.filter((F.col("canal_aps_www") == 'WWW') | (F.col("flag_SM") == 'DA')).select("superid").distinct().collect()]
+df_drs = spark.table("CAP_LIB.CERERI_STATUS_MV").filter(
+    ~F.col("drsuser").isin("uto", "998", "997", "yst") & F.col("superid").isin(superid_list_flexi4)
+).select(F.col("superid").alias("id")).distinct()
+
+df_aps_flexi4.createOrReplaceTempView("aps_flexi4")
+df_drs.createOrReplaceTempView("drs")
+df_aps_flexi4 = spark.sql("""
+    SELECT a.*,
+           CASE
+               WHEN b.id IS NOT NULL AND (a.canal_aps_www = 'WWW' OR a.flag_SM = 'DA') THEN 'Flux_Lead'
+               WHEN b.id IS NULL AND (a.canal_aps_www = 'WWW' OR a.flag_SM = 'DA') THEN 'Flux_E2E'
+               ELSE a.canal_aps_www
+           END AS Canal_decizie
+    FROM aps_flexi4 a
+    LEFT JOIN drs b ON a.superid = b.id
+""")
+
+df_aps_flexi4.stat.crosstab("flag_SM", "Canal_decizie").show()
+
+superid_list_derog = [row.superid for row in df_aps_flexi4.filter(F.col("DEROG_FLAG") == 'DA').select("superid").distinct().collect()]
+df_der_base = spark.table("cap_lib.cereri_status_mv").filter(F.col("superid").isin(superid_list_derog) & (F.col("status") == 1))
+window_spec_der = Window.partitionBy("superid").orderBy(F.col("DATASTATUS").desc())
+df_der = df_der_base.withColumn("rn", F.row_number().over(window_spec_der)).filter(F.col("rn") == 1).drop("rn")
+
+df_der = df_der.withColumn("motiv_derogare", F.concat(F.col("motiv"), F.col("comentariu")))
+df_der = df_der.withColumn("Flux_derogare",
+    F.when(F.col("motiv_derogare").contains("DE22"), 'Derogare DR')
+    .when(F.col("motiv_derogare").contains("DE23"), 'Derogare PICC')
+    .otherwise('Derogare risk')
+)
+
+df_aps_flexi4.createOrReplaceTempView("aps_flexi4")
+df_der.createOrReplaceTempView("der")
+df_aps_flexi5 = spark.sql("""
+    SELECT a.*, b.motiv_derogare, b.Flux_derogare
+    FROM aps_flexi4 a
+    LEFT JOIN der b ON a.superid = b.superid
+""")
+
+df_aps_flexi5.stat.crosstab("motiv_derogare", "Flux_derogare").show()
+
+df_aps_flexi5 = df_aps_flexi5.distinct()
+
+df_aps_flexi5 = df_aps_flexi5.withColumn("Flux_derogare", F.when(F.col("Flux_derogare").isNull(), 'NU').otherwise(F.col("Flux_derogare")))
+df_aps_flexi5 = df_aps_flexi5.drop(
+    "echrate", "cod_cc", "canal_aps2", "drsuser", "iduser", "iduserstatus", "top_client", "suma",
+    "venit_calc_intern", "superid", "flag_preap_crm", "ret_program", "ret_desc", "regiune_retail"
+)
+df_aps_flexi5 = df_aps_flexi5.withColumn("Flag_months_current_employer",
+    F.when(F.col("Flag_months_current_employer") == '1. N/A', '1. N/A- retired person')
+    .otherwise(F.col("Flag_months_current_employer"))
+)
+
+df_flexi.createOrReplaceTempView("flexi")
+df_aps_flexi5.createOrReplaceTempView("aps_flexi5")
+df_flexi_final = spark.sql("""
+    SELECT a.*, b.*
+    FROM flexi a
+    LEFT JOIN aps_flexi5 b ON a.id_aps = b.idcerere
+""")
+
+df_ral_prov = spark.table(f"proviz.ral_provizioane_el_{month}").filter(~F.col("prod3").isin('Cont_Curent'))
+df_ral_prov.createOrReplaceTempView("ral_provizioane_el_filtered")
+df_nr_credite = spark.sql("""
+    SELECT codcif, COUNT(*) AS Nr_Credite_RBRO_Actual
+    FROM ral_provizioane_el_filtered
+    GROUP BY codcif
+""")
+
+df_flexi_final.createOrReplaceTempView("flexi_final")
+df_nr_credite.createOrReplaceTempView("nr_credite")
+df_flexi_final = spark.sql("""
+    SELECT a.*, b.Nr_Credite_RBRO_Actual
+    FROM flexi_final a
+    LEFT JOIN nr_credite b ON a.codcif = b.codcif
+""")
+
+cnp_list = [row.CNP for row in df_flexi_final.select("CNP").distinct().collect()]
+df_bc_creditreport = spark.table("BC.BDC_CREDITREPORT").filter(F.col("CNP").isin(cnp_list))
+df_bc_creditreport = df_bc_creditreport.select("IDRAP", "CNP", "PROCESSED_TIMESTAMP")
+
+window_spec_bc = Window.partitionBy("CNP").orderBy(F.col("PROCESSED_TIMESTAMP").desc())
+df_BC = df_bc_creditreport.withColumn("rn", F.row_number().over(window_spec_bc)).filter(F.col("rn") == 1).drop("rn")
+
+df_BC.createOrReplaceTempView("BC")
+df_bdc_accountdetails = spark.table("BC.BDC_ACCOUNTDETAILS")
+df_bdc_accountdetails.createOrReplaceTempView("BDC_ACCOUNTDETAILS")
+df_ACCOUNT = spark.sql("""
+    SELECT b.*,
+           a.ACCOUNT_STATUS_CODE,
+           a.ACCOUNT_TYPE_CODE,
+           a.AMOUNT_PAST_DUE,
+           DATE(a.CREATED_ON) as CREATED_ON,
+           a.CREDIT_LIMIT,
+           a.CURRENCY,
+           a.CURRENT_BALANCE,
+           a.PARTICIPANT_LABEL,
+           a.PARTICIPANT_TYPE_CODE,
+           DATE(a.FIRST_DELIQUENCY_DATE) as FIRST_DELIQUENCY_DATE,
+           DATE(a.LAST_UPDATED_ON) as LAST_UPDATED_ON,
+           a.TERMS_DURATION,
+           a.TERMS_DURATION_UNIT,
+           DATE(a.DATE_OF_LAST_PAYMENT) as DATE_OF_LAST_PAYMENT,
+           a.idacc
+    FROM BC b
+    LEFT JOIN BDC_ACCOUNTDETAILS a ON a.CNP = b.CNP AND b.IDRAP = a.BDC_CREDITREPORT_ID
+""")
+
+df_ACCOUNT.groupBy("PARTICIPANT_LABEL").count().show()
+df_account = df_ACCOUNT.filter(F.col("PARTICIPANT_LABEL") != "RAIFFEISEN BANK SA")
+
+df_account.createOrReplaceTempView("account")
+df_bdc_accountstatus = spark.table("BC_MONIT.BDC_ACCOUNTSTATUS")
+df_bdc_accountstatus.createOrReplaceTempView("BDC_ACCOUNTSTATUS")
+df_ACC_STATUS = spark.sql("""
+    SELECT a.*, b.account_status, b.Activ
+    FROM account a
+    LEFT JOIN BDC_ACCOUNTSTATUS b ON a.ACCOUNT_STATUS_CODE = b.ACCOUNT_STATUS_CODE
+""")
+
+df_acc_status = df_ACC_STATUS.filter(~F.col("Activ").isin("No", ""))
+
+df_acc_status.createOrReplaceTempView("ACC_STATUS")
+df_bdc_accounttype = spark.table("BC_MONIT.BDC_ACCOUNTTYPE")
+df_bdc_accounttype.createOrReplaceTempView("BDC_ACCOUNTTYPE")
+df_ACC_STATUS = spark.sql("""
+    SELECT a.*, b.account_type, b.TipCont
+    FROM ACC_STATUS a
+    LEFT JOIN BDC_ACCOUNTTYPE b ON a.account_type_code = b.account_type_code
+""")
+
+df_bc1_creditreport = spark.table("BC_MONIT.BDC_CREDITREPORT").filter(F.col("CNP").isin(cnp_list))
+df_bc1_creditreport = df_bc1_creditreport.select("IDRAP", "CNP", F.col("IDRAP").alias("PROCESSED_TIMESTAMP").cast("timestamp"))
+window_spec_bc1 = Window.partitionBy("CNP").orderBy(F.col("PROCESSED_TIMESTAMP").desc())
+df_BC1 = df_bc1_creditreport.withColumn("rn", F.row_number().over(window_spec_bc1)).filter(F.col("rn") == 1).drop("rn")
+
+df_BC1.createOrReplaceTempView("BC1")
+df_bdc_accountdetails1 = spark.table("BC_MONIT.BDC_ACCOUNTDETAILS")
+df_bdc_accountdetails1.createOrReplaceTempView("BDC_ACCOUNTDETAILS1")
+df_ACCOUNT1 = spark.sql("""
+    SELECT b.*,
+           a.ACCOUNT_STATUS_CODE,
+           a.ACCOUNT_TYPE_CODE,
+           a.AMOUNT_PAST_DUE,
+           a.CREATED_ON,
+           a.CREDIT_LIMIT,
+           a.CURRENCY,
+           a.CURRENT_BALANCE,
+           a.PARTICIPANT as PARTICIPANT_LABEL,
+           a.participant_code as PARTICIPANT_TYPE_CODE,
+           a.first_delinquency_date as FIRST_DELIQUENCY_DATE,
+           a.LAST_UPDATED_ON,
+           a.TERMS_DURATION,
+           a.TERMS_DURATION_UNIT,
+           a.DATE_OF_LAST_PAYMENT,
+           a.idcnt
+    FROM BC1 b
+    LEFT JOIN BDC_ACCOUNTDETAILS1 a ON a.CNP = b.CNP AND b.IDRAP = a.IDRAP
+""")
+df_ACCOUNT1.groupBy("PARTICIPANT_LABEL").count().show()
+df_account1 = df_ACCOUNT1.filter(F.col("PARTICIPANT_LABEL") != "RAIFFEISEN BANK SA")
+
+df_account1.createOrReplaceTempView("account1")
+df_ACC_STATUS1 = spark.sql("""
+    SELECT a.*, b.account_status, b.Activ
+    FROM account1 a
+    LEFT JOIN BDC_ACCOUNTSTATUS b ON a.ACCOUNT_STATUS_CODE = b.ACCOUNT_STATUS_CODE
+""")
+
+df_acc_status1 = df_ACC_STATUS1.filter(~F.col("Activ").isin("No", ""))
+
+df_acc_status1.createOrReplaceTempView("ACC_STATUS1")
+df_ACC_STATUS1 = spark.sql("""
+    SELECT a.*, b.account_type, b.TipCont
+    FROM ACC_STATUS1 a
+    LEFT JOIN BDC_ACCOUNTTYPE b ON a.account_type_code = b.account_type_code
+""")
+
+df_bc_all = df_ACC_STATUS.unionByName(df_ACC_STATUS1, allowMissingColumns=True)
+
+window_spec_bcall = Window.partitionBy("cnp").orderBy(F.col("PROCESSED_TIMESTAMP").desc())
+df_bc_all1 = df_bc_all.withColumn("rn", F.row_number().over(window_spec_bcall)).filter(F.col("rn") == 1).drop("rn")
+
+df_bc_all1.createOrReplaceTempView("bc_all1")
+df_bc_info = spark.sql("""
+    SELECT cnp, COUNT(*) AS nr_conturi_other
+    FROM bc_all1
+    GROUP BY cnp
+""")
+
+df_flexi_final.createOrReplaceTempView("flexi_final")
+df_bc_info.createOrReplaceTempView("bc_info")
+df_flexi_final = spark.sql("""
+    SELECT a.*,
+           CASE WHEN b.nr_conturi_other > 0 THEN 'Are rate la alte banci si Raiffeisen'
+                ELSE 'Are rate la Raiffeisen'
+           END AS Situatie_credite_Actual
+    FROM flexi_final a
+    LEFT JOIN bc_info b ON a.cnp = b.cnp
+""")
+
+df_flexi_final = df_flexi_final.drop(
+    "cnp", "dpd_sistem_1mob", "dpd_sistem_2mob", "dpd_sistem_3mob",
+    "dpd_eba_12mob", "dpd_eba_3mob", "dpd_eba_6mob", "datacererii"
+)
+
+df_flexi_final.createOrReplaceTempView("flexi_final")
+df_mapare_motive_default = spark.table("irinaj.mapare_motive_default")
+df_mapare_motive_default.createOrReplaceTempView("mapare_motive_default")
+df_flexi_final = spark.sql("""
+    SELECT a.*, b.DESCRIERE_DEFAULT
+    FROM flexi_final a
+    LEFT JOIN mapare_motive_default b ON a.motiv_default = b.motiv_default
+""")
+
+df_flexi_final.write.format("delta").mode("overwrite").saveAsTable("at.flexiall_new")
+
+df_flexi_final.stat.crosstab("motiv_default", "DESCRIERE_DEFAULT").show()
+
+output_path = f"/mnt/rbro_dfs/Retail_credit/Retail/Common/MIS/MIS/ANSWER TREE/2024/9. SEP/Flexi_New_{month}.csv"
+df_flexi_final.write.mode("overwrite").option("header", "true").option("delimiter", ";").csv(output_path)
+
+df_flexi_final.write.format("delta").mode("overwrite").saveAsTable(f"export.flexi_at_{month}")
+
+#End-DBShift

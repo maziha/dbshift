@@ -1,0 +1,57 @@
+import pyspark.sql.functions as F
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder.appName("SortDataset").getOrCreate()
+
+L6_id = "some_value"
+
+jdbc_url = "jdbc:teradata://your_teradata_host/DATABASE=your_db"
+jdbc_user = "your_username"
+jdbc_password = "your_password" # In production, use dbutils.secrets.get(scope="your_scope", key="your_key")
+connection_properties = {
+  "user": jdbc_user,
+  "password": jdbc_password,
+  "driver": "com.teradata.jdbc.TeraDriver"
+}
+
+teradata_passthrough_query = f"(sel * from dl_cntl_adva.fcst_p_upc_inf where mjr_mds_are_id = {L6_id}) as t"
+
+df_from_teradata = spark.read.jdbc(url=jdbc_url, table=teradata_passthrough_query, properties=connection_properties)
+
+df_control_table = df_from_teradata.select("mjr_p_cls_id", "L2").distinct().orderBy(F.col("L2").desc())
+
+control_info_list = df_control_table.collect()
+nL2 = len(control_info_list)
+
+for i in range(nL2):
+    L2_id = control_info_list[i]['mjr_p_cls_id']
+    string2 = control_info_list[i]['L2']
+    j = i + 1
+
+    print(j)
+    print(string2)
+    
+    table_to_process = f"promo.pid_{string2}"
+
+    if spark.catalog.tableExists(table_to_process):
+        
+        normsort = 0
+        try:
+            detail_df = spark.sql(f"DESCRIBE DETAIL {table_to_process}")
+            size_in_bytes = detail_df.select("sizeInBytes").first()[0]
+            if size_in_bytes is not None and size_in_bytes > 15742926848:
+                normsort = 1
+        except Exception:
+            normsort = 0
+        
+        if normsort >= 1:
+            df_to_sort = spark.table(table_to_process)
+            df_sorted = df_to_sort.orderBy("p_id", "ut_id", "cldr_day_of_wk_id")
+            df_sorted.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(table_to_process)
+        
+        else:
+            df_to_sort = spark.table(table_to_process)
+            df_sorted = df_to_sort.orderBy("p_id", "ut_id", "cldr_day_of_wk_id")
+            df_sorted.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(table_to_process)
+
+#End-DBShift
