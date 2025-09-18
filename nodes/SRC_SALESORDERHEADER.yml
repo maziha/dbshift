@@ -1,0 +1,168 @@
+fileVersion: 1
+id: 593883a0-71a2-466d-96ac-86ca255476a8
+name: SALESORDERHEADER
+operation:
+  database: DBSHIFT
+  deployEnabled: true
+  description: ""
+  locationName: DBSHIFT
+  metadata:
+    columns:
+    - acceptedValues:
+        strictMatch: true
+        values: []
+      appliedColumnTests: {}
+      columnReference:
+        columnCounter: 77a00f28-d76c-4866-9b50-36a5c37eb618
+        stepCounter: 593883a0-71a2-466d-96ac-86ca255476a8
+      config: {}
+      dataType: STRING
+      defaultValue: ""
+      description: ""
+      name: CUSTOMER_ID
+      nullable: true
+      primaryKey: false
+      sourceColumnReferences:
+      - columnReferences: []
+        transform: ""
+      transform: ""
+      uniqueKey: false
+    - acceptedValues:
+        strictMatch: true
+        values: []
+      appliedColumnTests: {}
+      columnReference:
+        columnCounter: 938f36c5-236b-4e0c-99f5-17a49f87545b
+        stepCounter: 593883a0-71a2-466d-96ac-86ca255476a8
+      config: {}
+      dataType: STRING
+      defaultValue: ""
+      description: ""
+      name: PRODUCT_CATEGORY
+      nullable: true
+      primaryKey: false
+      sourceColumnReferences:
+      - columnReferences: []
+        transform: ""
+      transform: ""
+      uniqueKey: false
+    - acceptedValues:
+        strictMatch: true
+        values: []
+      appliedColumnTests: {}
+      columnReference:
+        columnCounter: b138c201-1b94-4d16-8c46-13d81b95b871
+        stepCounter: 593883a0-71a2-466d-96ac-86ca255476a8
+      config: {}
+      dataType: STRING
+      defaultValue: ""
+      description: ""
+      name: PRODUCT_SUBCATEGORY
+      nullable: true
+      primaryKey: false
+      sourceColumnReferences:
+      - columnReferences: []
+        transform: ""
+      transform: ""
+      uniqueKey: false
+    - acceptedValues:
+        strictMatch: true
+        values: []
+      appliedColumnTests: {}
+      columnReference:
+        columnCounter: c822e848-18e0-4786-89e4-8390b1e19488
+        stepCounter: 593883a0-71a2-466d-96ac-86ca255476a8
+      config: {}
+      dataType: STRING
+      defaultValue: ""
+      description: ""
+      name: PAYMENT_METHOD
+      nullable: true
+      primaryKey: false
+      sourceColumnReferences:
+      - columnReferences: []
+        transform: ""
+      transform: ""
+      uniqueKey: false
+    - acceptedValues:
+        strictMatch: true
+        values: []
+      appliedColumnTests: {}
+      columnReference:
+        columnCounter: f5115167-27e1-4c60-84a1-b7556f890e09
+        stepCounter: 593883a0-71a2-466d-96ac-86ca255476a8
+      config: {}
+      dataType: STRING
+      defaultValue: ""
+      description: ""
+      name: SHIPPING_TYPE
+      nullable: true
+      primaryKey: false
+      sourceColumnReferences:
+      - columnReferences: []
+        transform: ""
+      transform: ""
+      uniqueKey: false
+    - acceptedValues:
+        strictMatch: true
+        values: []
+      appliedColumnTests: {}
+      columnReference:
+        columnCounter: d7925e51-c068-4545-97e3-0c03630f533a
+        stepCounter: 593883a0-71a2-466d-96ac-86ca255476a8
+      config: {}
+      dataType: STRING
+      defaultValue: ""
+      description: ""
+      name: SHIPMENT_MODE
+      nullable: true
+      primaryKey: false
+      sourceColumnReferences:
+      - columnReferences: []
+        transform: ""
+      transform: ""
+      uniqueKey: false
+    - acceptedValues:
+        strictMatch: true
+        values: []
+      appliedColumnTests: {}
+      columnReference:
+        columnCounter: 914e9f4a-8999-44ef-95b7-7ac325f18731
+        stepCounter: 593883a0-71a2-466d-96ac-86ca255476a8
+      config: {}
+      dataType: STRING
+      defaultValue: ""
+      description: ""
+      name: ORDER_ID
+      nullable: true
+      primaryKey: false
+      sourceColumnReferences:
+      - columnReferences: []
+        transform: ""
+      transform: ""
+      uniqueKey: false
+    - acceptedValues:
+        strictMatch: true
+        values: []
+      appliedColumnTests: {}
+      columnReference:
+        columnCounter: 472111c1-4b15-46f9-bf53-83561a0f5e1f
+        stepCounter: 593883a0-71a2-466d-96ac-86ca255476a8
+      config: {}
+      dataType: DATE
+      defaultValue: ""
+      description: ""
+      name: ORDER_DATE
+      nullable: true
+      primaryKey: false
+      sourceColumnReferences:
+      - columnReferences: []
+        transform: ""
+      transform: ""
+      uniqueKey: false
+  name: SALESORDERHEADER
+  schema: DBSHIFT
+  sqlType: Source
+  type: sourceInput
+  version: 1
+type: Node

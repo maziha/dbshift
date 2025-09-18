@@ -1,0 +1,130 @@
+fileVersion: 1
+id: a29a43a8-4298-4c3e-8260-8451f28b28f8
+name: SHIPPINGINFO
+operation:
+  database: DBSHIFT
+  deployEnabled: true
+  description: ""
+  locationName: DBSHIFT
+  metadata:
+    columns:
+    - acceptedValues:
+        strictMatch: true
+        values: []
+      appliedColumnTests: {}
+      columnReference:
+        columnCounter: 4e26e38b-d5de-4d43-bdc1-4cd4a31a106f
+        stepCounter: a29a43a8-4298-4c3e-8260-8451f28b28f8
+      config: {}
+      dataType: STRING
+      defaultValue: ""
+      description: ""
+      name: SHIPMENT_MODE
+      nullable: true
+      primaryKey: false
+      sourceColumnReferences:
+      - columnReferences: []
+        transform: ""
+      transform: ""
+      uniqueKey: false
+    - acceptedValues:
+        strictMatch: true
+        values: []
+      appliedColumnTests: {}
+      columnReference:
+        columnCounter: e09e3a35-242d-4518-8f55-1f63e6f9827a
+        stepCounter: a29a43a8-4298-4c3e-8260-8451f28b28f8
+      config: {}
+      dataType: STRING
+      defaultValue: ""
+      description: ""
+      name: PLATFORM_USED
+      nullable: true
+      primaryKey: false
+      sourceColumnReferences:
+      - columnReferences: []
+        transform: ""
+      transform: ""
+      uniqueKey: false
+    - acceptedValues:
+        strictMatch: true
+        values: []
+      appliedColumnTests: {}
+      columnReference:
+        columnCounter: 5763f04f-7988-4669-9f7a-acbe59f518e8
+        stepCounter: a29a43a8-4298-4c3e-8260-8451f28b28f8
+      config: {}
+      dataType: DATE
+      defaultValue: ""
+      description: ""
+      name: MANU_DATE
+      nullable: true
+      primaryKey: false
+      sourceColumnReferences:
+      - columnReferences: []
+        transform: ""
+      transform: ""
+      uniqueKey: false
+    - acceptedValues:
+        strictMatch: true
+        values: []
+      appliedColumnTests: {}
+      columnReference:
+        columnCounter: 0f22f73a-44c1-460d-862d-0b701f55a159
+        stepCounter: a29a43a8-4298-4c3e-8260-8451f28b28f8
+      config: {}
+      dataType: DOUBLE
+      defaultValue: ""
+      description: ""
+      name: SALES_AMOUNT
+      nullable: true
+      primaryKey: false
+      sourceColumnReferences:
+      - columnReferences: []
+        transform: ""
+      transform: ""
+      uniqueKey: false
+    - acceptedValues:
+        strictMatch: true
+        values: []
+      appliedColumnTests: {}
+      columnReference:
+        columnCounter: 8d2c0b02-53b7-4c07-b648-7354674eb99f
+        stepCounter: a29a43a8-4298-4c3e-8260-8451f28b28f8
+      config: {}
+      dataType: STRING
+      defaultValue: ""
+      description: ""
+      name: DISCOUNT_APPLIED
+      nullable: true
+      primaryKey: false
+      sourceColumnReferences:
+      - columnReferences: []
+        transform: ""
+      transform: ""
+      uniqueKey: false
+    - acceptedValues:
+        strictMatch: true
+        values: []
+      appliedColumnTests: {}
+      columnReference:
+        columnCounter: 9c345163-14ab-453b-a241-d57b5247715b
+        stepCounter: a29a43a8-4298-4c3e-8260-8451f28b28f8
+      config: {}
+      dataType: STRING
+      defaultValue: ""
+      description: ""
+      name: NET_COST
+      nullable: true
+      primaryKey: false
+      sourceColumnReferences:
+      - columnReferences: []
+        transform: ""
+      transform: ""
+      uniqueKey: false
+  name: SHIPPINGINFO
+  schema: DBSHIFT
+  sqlType: Source
+  type: sourceInput
+  version: 1
+type: Node

@@ -1,0 +1,35 @@
+fileVersion: 1
+id: fe2764f6-ef79-43d9-a789-21782245b77e
+name: TRANSFERREDORDERS
+operation:
+  database: DBSHIFT
+  deployEnabled: true
+  description: ""
+  locationName: DBSHIFT
+  metadata:
+    columns:
+    - acceptedValues:
+        strictMatch: true
+        values: []
+      appliedColumnTests: {}
+      columnReference:
+        columnCounter: 8d726b0a-7063-44f2-9844-426c59b64c01
+        stepCounter: fe2764f6-ef79-43d9-a789-21782245b77e
+      config: {}
+      dataType: STRING
+      defaultValue: ""
+      description: ""
+      name: ORDER_ID
+      nullable: true
+      primaryKey: false
+      sourceColumnReferences:
+      - columnReferences: []
+        transform: ""
+      transform: ""
+      uniqueKey: false
+  name: TRANSFERREDORDERS
+  schema: DBSHIFT
+  sqlType: Source
+  type: sourceInput
+  version: 1
+type: Node

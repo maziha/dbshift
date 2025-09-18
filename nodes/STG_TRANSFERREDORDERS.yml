@@ -1,0 +1,53 @@
+fileVersion: 1
+id: 97891787-84be-4f59-a2e6-a8c66a4f9448
+name: STG_TRANSFERREDORDERS
+operation:
+  config:
+    insertStrategy: INSERT
+    postSQL: ""
+    preSQL: ""
+    testsEnabled: true
+    truncateBefore: true
+  database: DBSHIFT
+  deployEnabled: true
+  description: ""
+  isMultisource: false
+  locationName: DBSHIFT
+  materializationType: table
+  metadata:
+    appliedNodeTests: []
+    columns:
+    - appliedColumnTests: {}
+      columnReference:
+        columnCounter: 2d1e0281-2244-43e6-ac24-5d9c79247653
+        stepCounter: 97891787-84be-4f59-a2e6-a8c66a4f9448
+      config: {}
+      dataType: STRING
+      description: ""
+      name: ORDER_ID
+      nullable: true
+      sourceColumnReferences:
+      - columnReferences:
+        - columnCounter: 8d726b0a-7063-44f2-9844-426c59b64c01
+          stepCounter: fe2764f6-ef79-43d9-a789-21782245b77e
+        transform: TRANSFERREDORDERS.ORDER_ID
+    cteString: ""
+    enabledColumnTestIDs: []
+    sourceMapping:
+    - aliases: {}
+      customSQL:
+        customSQL: ""
+      dependencies:
+      - locationName: DBSHIFT
+        nodeName: TRANSFERREDORDERS
+      join:
+        joinCondition: FROM {{ ref('DBSHIFT', 'TRANSFERREDORDERS') }} AS TRANSFERREDORDERS
+      name: STG_TRANSFERREDORDERS
+      noLinkRefs: []
+  name: STG_TRANSFERREDORDERS
+  overrideSQL: false
+  schema: DBSHIFT
+  sqlType: Stage
+  type: sql
+  version: 1
+type: Node

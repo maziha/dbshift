@@ -1,0 +1,123 @@
+fileVersion: 1
+id: 597950c0-6745-4299-b1d5-b6d859d95f82
+name: STG_SHIPPINGINFO
+operation:
+  config:
+    insertStrategy: INSERT
+    postSQL: ""
+    preSQL: ""
+    testsEnabled: true
+    truncateBefore: true
+  database: DBSHIFT
+  deployEnabled: true
+  description: ""
+  isMultisource: false
+  locationName: DBSHIFT
+  materializationType: table
+  metadata:
+    appliedNodeTests: []
+    columns:
+    - appliedColumnTests: {}
+      columnReference:
+        columnCounter: caa4e23c-d38a-4065-a864-463878b665c3
+        stepCounter: 597950c0-6745-4299-b1d5-b6d859d95f82
+      config: {}
+      dataType: STRING
+      description: ""
+      name: SHIPMENT_MODE
+      nullable: true
+      sourceColumnReferences:
+      - columnReferences:
+        - columnCounter: 4e26e38b-d5de-4d43-bdc1-4cd4a31a106f
+          stepCounter: a29a43a8-4298-4c3e-8260-8451f28b28f8
+        transform: SHIPPINGINFO.SHIPMENT_MODE
+    - appliedColumnTests: {}
+      columnReference:
+        columnCounter: 3227cc47-062e-4b61-9c10-e79e6189914d
+        stepCounter: 597950c0-6745-4299-b1d5-b6d859d95f82
+      config: {}
+      dataType: STRING
+      description: ""
+      name: PLATFORM_USED
+      nullable: true
+      sourceColumnReferences:
+      - columnReferences:
+        - columnCounter: e09e3a35-242d-4518-8f55-1f63e6f9827a
+          stepCounter: a29a43a8-4298-4c3e-8260-8451f28b28f8
+        transform: UPPER(SHIPPINGINFO.PLATFORM_USED)
+    - appliedColumnTests: {}
+      columnReference:
+        columnCounter: eb997424-df3c-4876-8806-a88981b2e67f
+        stepCounter: 597950c0-6745-4299-b1d5-b6d859d95f82
+      config: {}
+      dataType: DATE
+      description: ""
+      name: MANU_DATE
+      nullable: true
+      sourceColumnReferences:
+      - columnReferences:
+        - columnCounter: 5763f04f-7988-4669-9f7a-acbe59f518e8
+          stepCounter: a29a43a8-4298-4c3e-8260-8451f28b28f8
+        transform: CAST(SHIPPINGINFO.MANU_DATE AS DATE)
+    - appliedColumnTests: {}
+      columnReference:
+        columnCounter: 47b9fd9f-4318-40a8-b615-5c1a4b605809
+        stepCounter: 597950c0-6745-4299-b1d5-b6d859d95f82
+      config: {}
+      dataType: DOUBLE
+      description: ""
+      name: SALES_AMOUNT
+      nullable: true
+      sourceColumnReferences:
+      - columnReferences:
+        - columnCounter: 0f22f73a-44c1-460d-862d-0b701f55a159
+          stepCounter: a29a43a8-4298-4c3e-8260-8451f28b28f8
+        transform: SHIPPINGINFO.SALES_AMOUNT
+    - appliedColumnTests: {}
+      columnReference:
+        columnCounter: 3274df08-d26b-4ef9-8b43-b6d0590a383d
+        stepCounter: 597950c0-6745-4299-b1d5-b6d859d95f82
+      config: {}
+      dataType: FLOAT
+      description: ""
+      name: DISCOUNT_APPLIED
+      nullable: true
+      sourceColumnReferences:
+      - columnReferences:
+        - columnCounter: 8d2c0b02-53b7-4c07-b648-7354674eb99f
+          stepCounter: a29a43a8-4298-4c3e-8260-8451f28b28f8
+        transform: CAST(SHIPPINGINFO.DISCOUNT_APPLIED AS FLOAT)
+    - appliedColumnTests: {}
+      columnReference:
+        columnCounter: c1152a41-380d-43dd-9333-d9d10e828d11
+        stepCounter: 597950c0-6745-4299-b1d5-b6d859d95f82
+      config: {}
+      dataType: DECIMAL(12,2)
+      description: ""
+      name: NET_COST
+      nullable: true
+      sourceColumnReferences:
+      - columnReferences:
+        - columnCounter: 9c345163-14ab-453b-a241-d57b5247715b
+          stepCounter: a29a43a8-4298-4c3e-8260-8451f28b28f8
+        transform: CAST(SHIPPINGINFO.NET_COST AS DECIMAL(12,2))
+    cteString: ""
+    enabledColumnTestIDs: []
+    sourceMapping:
+    - aliases: {}
+      customSQL:
+        customSQL: ""
+      dependencies:
+      - locationName: DBSHIFT
+        nodeName: SHIPPINGINFO
+      join:
+        joinCondition: FROM {{ ref('DBSHIFT', 'SHIPPINGINFO') }} AS SHIPPINGINFO
+      name: STG_SHIPPINGINFO
+      noLinkRefs: []
+  name: STG_SHIPPINGINFO
+  overrideSQL: false
+  schema: DBSHIFT
+  sqlType: Stage
+  type: sql
+  version: 1
+type: Node
