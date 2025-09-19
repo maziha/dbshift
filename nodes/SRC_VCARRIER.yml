@@ -1,0 +1,852 @@
+fileVersion: 1
+id: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+name: VCARRIER
+operation:
+  database: EPIC
+  deployEnabled: true
+  description: ""
+  locationName: EPIC
+  metadata:
+    columns:
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 3a2c5f1e-1b2c-4d5e-8f9a-0b1c2d3e4f5a
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: Code
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 4b3d6f2f-2c3d-4e6f-9a0b-1c2d3e4f5a6b
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: Name
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 5c4e7f3g-3d4e-5f7g-0b1c-2d3e4f5a6b7c
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: SourceSystem
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 6d5f8g4h-4e5f-6g8h-1c2d-3e4f5a6b7c8d
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: SourceSystemID
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 7e6g9h5i-5f6g-7h9i-2d3e-4f5a6b7c8d9e
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: BOOLEAN
+        defaultValue: ""
+        description: ""
+        name: IsActive
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 8f7h0i6j-6g7h-8i0j-3e4f-5a6b7c8d9e0f
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: LookupCode
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 9g8i1j7k-7h8i-9j1k-4f5a-6b7c8d9e0f1a
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: Type
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 0h9j2k8l-8i9j-0k2l-5a6b-7c8d9e0f1a2b
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: TIMESTAMP
+        defaultValue: ""
+        description: ""
+        name: SourceInsertedDate
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 1i0k3l9m-9j0k-1l3m-6b7c-8d9e0f1a2b3c
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: SourceInsertedBy
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 2j1l4m0n-0k1l-2m4n-7c8d-9e0f1a2b3c4d
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: TIMESTAMP
+        defaultValue: ""
+        description: ""
+        name: SourceInactivatedDate
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 3k2m5n1o-1l2m-3n5o-8d9e-0f1a2b3c4d5e
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: TIMESTAMP
+        defaultValue: ""
+        description: ""
+        name: SourceUpdatedDate
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 4l3n6o2p-2m3n-4o6p-9e0f-1a2b3c4d5e6f
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: SourceBillingCompanyID
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 5m4o7p3q-3n4o-5p7q-0f1a-2b3c4d5e6f7a
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: SourceParentCompanyID
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 6n5p8q4r-4o5p-6q8r-1a2b-3c4d5e6f7a8b
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: BOOLEAN
+        defaultValue: ""
+        description: ""
+        name: IsIssuingCompany
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 7o6q9r5s-5p6q-7r9s-2b3c-4d5e6f7a8b9c
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: BOOLEAN
+        defaultValue: ""
+        description: ""
+        name: IsBillingCompany
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 8p7r0s6t-6q7r-8s0t-3c4d-5e6f7a8b9c0d
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: BOOLEAN
+        defaultValue: ""
+        description: ""
+        name: IsParentCompany
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 9q8s1t7u-7r8s-9t1u-4d5e-6f7a8b9c0d1e
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: BOOLEAN
+        defaultValue: ""
+        description: ""
+        name: IssuesBinders
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 0r9t2u8v-8s9t-0u2v-5e6f-7a8b9c0d1e2f
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: BOOLEAN
+        defaultValue: ""
+        description: ""
+        name: AllowOnNewBusiness
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 1s0u3v9w-9t0u-1v3w-6f7a-8b9c0d1e2f3a
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: BOOLEAN
+        defaultValue: ""
+        description: ""
+        name: AllowOnRenewalBusiness
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 2t1v4w0x-0u1v-2w4x-7a8b-9c0d1e2f3a4b
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: BillingModeCode
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 3u2w5x1y-1v2w-3x5y-8b9c-0d1e2f3a4b5c
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: ReconciliationMethodCode
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 4v3x6y2z-2w3x-4y6z-9c0d-1e2f3a4b5c6d
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: BatchPaymentMethodCode
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 5w4y7z3a-3x4y-5z7a-0d1e-2f3a4b5c6d7e
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: GLSubAccount
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 6x5z8a4b-4y5z-6a8b-1e2f-3a4b5c6d7e8f
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: FATCAComplianceStatus
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 7y6a9b5c-5z6a-7b9c-2f3a-4b5c6d7e8f9a
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: NAICCode
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 8z7b0c6d-6a7b-8c0d-3a4b-5c6d7e8f9a0b
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: Address1
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 9a8c1d7e-7b8c-9d1e-4b5c-6d7e8f9a0b1c
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: Address2
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 0b9d2e8f-8c9d-0e2f-5c6d-7e8f9a0b1c2d
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: Address3
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 1c0e3f9a-9d0e-1f3a-6d7e-8f9a0b1c2d3e
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: City
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 2d1f4a0b-0e1f-2a4b-7e8f-9a0b1c2d3e4f
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: PostalCode
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 3e2a5b1c-1f2a-3b5c-8f9a-0b1c2d3e4f5a
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: County
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 4f3b6c2d-2a3b-4c6d-9a0b-1c2d3e4f5a6b
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: StateCode
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 5a4c7d3e-3b4c-5d7e-0b1c-2d3e4f5a6b7c
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: RegionProvince
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 6b5d8e4f-4c5d-6e8f-1c2d-3e4f5a6b7c8d
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: CountryCode
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 7c6e9f5a-5d6e-7f9a-2d3e-4f5a6b7c8d9e
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: PhoneNumber
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 8d7f0a6b-6e7f-8a0b-3e4f-5a6b7c8d9e0f
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: PhoneExtension
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 9e8a1b7c-7f8a-9b1c-4f5a-6b7c8d9e0f1a
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: PhoneNumberNotes
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 0f9b2c8d-8a9b-0c2d-5a6b-7c8d9e0f1a2b
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: FaxNumber
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 1a0c3d9e-9b0c-1d3e-6b7c-8d9e0f1a2b3c
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: FaxNumberNotes
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 2b1d4e0f-0c1d-2e4f-7c8d-9e0f1a2b3c4d
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: Website
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 3c2e5f1a-1d2e-3f5a-8d9e-0f1a2b3c4d5e
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: EpicID
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 4d3f6a2b-2e3f-4a6b-9e0f-1a2b3c4d5e6f
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: AMBestID
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 5e4a7b3c-3f4a-5b7c-0f1a-2b3c4d5e6f7a
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: PriorCompanyID
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 6f5b8c4d-4a5b-6c8d-1a2b-3c4d5e6f7a8b
+          stepCounter: 5e6a9f4d-1b9a-4e2e-8c3b-7a6b8c9d0e1a
+        config: {}
+        dataType: TIMESTAMP
+        defaultValue: ""
+        description: ""
+        name: ConversionDate
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+  name: VCARRIER
+  schema: EPIC
+  sqlType: Source
+  type: sourceInput
+  version: 1
+type: Node
