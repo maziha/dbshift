@@ -1,0 +1,70 @@
+fileVersion: 1
+id: i6621t3u-56s3-4o8t-r8o7-345s6t789u0o
+name: LATEST_ACTIVATION_DATE
+operation:
+  config:
+    insertStrategy: INSERT
+    postSQL: ""
+    preSQL: ""
+    testsEnabled: true
+    truncateBefore: true
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: Handles the subquery to find the most recent promotion for each
+    SKU.
+  isMultisource: false
+  locationName: ALCOBEVDB
+  materializationType: table
+  metadata:
+    appliedNodeTests: []
+    columns:
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: j7732u4v-67t4-5p9u-s9p8-456t7u890v1p
+          stepCounter: i6621t3u-56s3-4o8t-r8o7-345s6t789u0o
+        config: {}
+        dataType: STRING
+        description: ""
+        name: PRODUCTLEVELCODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: zhx32k4l-67j4-5f9k-i9f8-456j7k890l1f
+                stepCounter: ygw21j3k-56i3-4e8j-h8e7-345i6j789k0e
+            transform: STG_ACTIVATIONMASTER.PRODUCTLEVELCODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: k8843v5w-78u5-6q0v-t0q9-567u8v901w2q
+          stepCounter: i6621t3u-56s3-4o8t-r8o7-345s6t789u0o
+        config: {}
+        dataType: DATE
+        description: ""
+        name: LATEST_EFFECTIVEFROM
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 182a5592-8088-40b5-9964-672522bdcc3f
+                stepCounter: ygw21j3k-56i3-4e8j-h8e7-345i6j789k0e
+            transform: MAX(STG_ACTIVATIONMASTER.EFFECTIVEFROM)
+    cteString: ""
+    enabledColumnTestIDs: []
+    sourceMapping:
+      - aliases: {}
+        customSQL:
+          customSQL: ""
+        dependencies:
+          - locationName: ALCOBEVDB
+            nodeName: STG_ACTIVATIONMASTER
+        join:
+          joinCondition: |-
+            FROM {{ ref('ALCOBEV', 'STG_ACTIVATIONMASTER') }} AS STG_ACTIVATIONMASTER
+            GROUP BY STG_ACTIVATIONMASTER.PRODUCTLEVELCODE
+        name: LATEST_ACTIVATION_DATE
+        noLinkRefs: []
+  name: LATEST_ACTIVATION_DATE
+  overrideSQL: false
+  schema: ALCOBEV
+  sqlType: Dimension
+  type: sql
+  version: 1
+type: Node

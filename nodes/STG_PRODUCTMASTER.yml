@@ -1,0 +1,69 @@
+fileVersion: 1
+id: 8g6c5j7k-90i7-8e2j-h2e1-789i0j123k4e
+name: STG_PRODUCTMASTER
+operation:
+  config:
+    insertStrategy: INSERT
+    postSQL: ""
+    preSQL: ""
+    testsEnabled: true
+    truncateBefore: true
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: ""
+  isMultisource: false
+  locationName: ALCOBEVDB
+  materializationType: table
+  metadata:
+    appliedNodeTests: []
+    columns:
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 9h7d6k8l-01j8-9f3k-i3f2-890j1k234l5f
+          stepCounter: 8g6c5j7k-90i7-8e2j-h2e1-789i0j123k4e
+        config: {}
+        dataType: STRING
+        description: ""
+        name: SKUCODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 8g6c5j7k-90i7-8e2j-h2e1-789i0j123k4e
+                stepCounter: 7f5b4i6j-89h6-7d1i-g1d0-678h9i012j3d
+            transform: pm.SKUCODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: ai8e7l9m-12k9-0g4l-j4g3-901k2l345m6g
+          stepCounter: 8g6c5j7k-90i7-8e2j-h2e1-789i0j123k4e
+        config: {}
+        dataType: STRING
+        description: ""
+        name: ITEMNAME
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 9h7d6k8l-01j8-9f3k-i3f2-890j1k234l5f
+                stepCounter: 7f5b4i6j-89h6-7d1i-g1d0-678h9i012j3d
+            transform: IFF(pm.ITEMNAME IS NULL OR pm.ITEMNAME = 'NULL', 'UNKNOWN',
+              REPLACE(TRIM(pm.ITEMNAME), ' ', '_'))
+    cteString: ""
+    enabledColumnTestIDs: []
+    sourceMapping:
+      - aliases:
+          PRODUCTMASTER: pm
+        customSQL:
+          customSQL: ""
+        dependencies:
+          - locationName: ALCOBEVDB
+            nodeName: PRODUCTMASTER
+        join:
+          joinCondition: FROM {{ ref('ALCOBEV', 'PRODUCTMASTER') }} AS pm
+        name: STG_PRODUCTMASTER
+        noLinkRefs: []
+  name: STG_PRODUCTMASTER
+  overrideSQL: false
+  schema: ALCOBEV
+  sqlType: Stage
+  type: sql
+  version: 1
+type: Node

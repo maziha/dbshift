@@ -1,0 +1,54 @@
+fileVersion: 1
+id: ksi87v9w-12u9-0q4v-t4q3-901u2v345w6q
+name: OUTLETMASTER
+operation:
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: ""
+  locationName: ALCOBEVDB
+  metadata:
+    columns:
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: ltj98w0x-23v0-1r5w-u5r4-012v3w456x7r
+          stepCounter: ksi87v9w-12u9-0q4v-t4q3-901u2v345w6q
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: OUTLET_CODE
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: muk09x1y-34w1-2s6x-v6s5-123w4x567y8s
+          stepCounter: ksi87v9w-12u9-0q4v-t4q3-901u2v345w6q
+        config: {}
+        dataType: INTEGER
+        defaultValue: ""
+        description: ""
+        name: ACTIVE_FLAG
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+  name: OUTLETMASTER
+  schema: ALCOBEV
+  sqlType: Source
+  type: sourceInput
+  version: 1
+type: Node

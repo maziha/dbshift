@@ -1,0 +1,221 @@
+fileVersion: 1
+id: 67d9133b-054c-492e-c9e3-16042a07b832
+name: V_FACT_SALES_SUMMARY
+operation:
+  config:
+    insertStrategy: INSERT
+    postSQL: ""
+    preSQL: ""
+    testsEnabled: true
+    truncateBefore: true
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: View on top of the aggregated sales summary fact table
+  isMultisource: false
+  locationName: ALCOBEVDB
+  materializationType: view
+  metadata:
+    appliedNodeTests: []
+    columns:
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 109a244c-165d-4a3f-d0f4-27153b18c943
+          stepCounter: 67d9133b-054c-492e-c9e3-16042a07b832
+        config: {}
+        dataType: STRING
+        description: ""
+        name: COMPANYCODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 0f8f30bb-7123-4567-8901-23456789abcd
+                stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+            transform: FACT_SALES_SUMMARY.COMPANYCODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 21ab355d-276e-4b4a-e1a5-38264c29da54
+          stepCounter: 67d9133b-054c-492e-c9e3-16042a07b832
+        config: {}
+        dataType: STRING
+        description: ""
+        name: COMPANYNAME
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 1a9c41cd-8234-5678-9012-3456789abcde
+                stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+            transform: FACT_SALES_SUMMARY.COMPANYNAME
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 32bc466e-387f-4c5b-f2b6-49375d3aeB65
+          stepCounter: 67d9133b-054c-492e-c9e3-16042a07b832
+        config: {}
+        dataType: STRING
+        description: ""
+        name: STATECODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 2ba052de-9345-6789-0123-456789abcdef
+                stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+            transform: FACT_SALES_SUMMARY.STATECODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 43cd577f-4980-4d6c-03c7-5a486e4bfC76
+          stepCounter: 67d9133b-054c-492e-c9e3-16042a07b832
+        config: {}
+        dataType: STRING
+        description: ""
+        name: STATENAME
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 3cb163ef-a456-7890-1234-56789abcdeff
+                stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+            transform: FACT_SALES_SUMMARY.STATENAME
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 54de6880-5a91-4e7d-14d8-6b597f5c0D87
+          stepCounter: 67d9133b-054c-492e-c9e3-16042a07b832
+        config: {}
+        dataType: STRING
+        description: ""
+        name: SKUCODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 4dc274f0-b567-8901-2345-6789abcdef01
+                stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+            transform: FACT_SALES_SUMMARY.SKUCODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 65ef7991-6ba2-4f8e-25e9-7c6a806d1E98
+          stepCounter: 67d9133b-054c-492e-c9e3-16042a07b832
+        config: {}
+        dataType: STRING
+        description: ""
+        name: ITEMNAME
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 5ed38501-c678-9012-3456-789abcdef012
+                stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+            transform: FACT_SALES_SUMMARY.ITEMNAME
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 76f08aa2-7cb3-409f-36fa-8d7b917e2Fa9
+          stepCounter: 67d9133b-054c-492e-c9e3-16042a07b832
+        config: {}
+        dataType: FLOAT
+        description: ""
+        name: TOTAL_VOLUMEACTUALCASE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 6fe49612-d789-0123-4567-89abcdef0123
+                stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+            transform: FACT_SALES_SUMMARY.TOTAL_VOLUMEACTUALCASE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 87019bb3-8dc4-41a0-470b-9e8c028f3Gb0
+          stepCounter: 67d9133b-054c-492e-c9e3-16042a07b832
+        config: {}
+        dataType: FLOAT
+        description: ""
+        name: TOTAL_PLAN_QTY
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 70f5a723-e890-1234-5678-9abcdef01234
+                stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+            transform: FACT_SALES_SUMMARY.TOTAL_PLAN_QTY
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 9812acc4-9ed5-42b1-581c-af9d13904Hc1
+          stepCounter: 67d9133b-054c-492e-c9e3-16042a07b832
+        config: {}
+        dataType: FLOAT
+        description: ""
+        name: AVERAGE_PRICE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 8106b834-f901-2345-6789-abcdef012345
+                stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+            transform: FACT_SALES_SUMMARY.AVERAGE_PRICE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: a923bdd5-a0e6-43c2-692d-b0ae24a15Id2
+          stepCounter: 67d9133b-054c-492e-c9e3-16042a07b832
+        config: {}
+        dataType: STRING
+        description: ""
+        name: ACTIVE_FLAG
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 9217c945-0a12-3456-789a-bcdef0123456
+                stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+            transform: FACT_SALES_SUMMARY.ACTIVE_FLAG
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: ba34cee6-b1f7-44d3-7a3e-c1bf35b26Je3
+          stepCounter: 67d9133b-054c-492e-c9e3-16042a07b832
+        config: {}
+        dataType: STRING
+        description: ""
+        name: PROMOTION_DESC
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: a328da56-1b23-4567-89ab-cdef01234567
+                stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+            transform: FACT_SALES_SUMMARY.PROMOTION_DESC
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: cb45dff7-c208-45e4-8b4f-d2c046c37Kf4
+          stepCounter: 67d9133b-054c-492e-c9e3-16042a07b832
+        config: {}
+        dataType: DATE
+        description: ""
+        name: EFFECTIVE_DATE_RANGE_START
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: b439eb67-2c34-5678-9abc-def012345678
+                stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+            transform: FACT_SALES_SUMMARY.EFFECTIVE_DATE_RANGE_START
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: dc56e008-d319-46f5-9c50-e3d157d48Lg5
+          stepCounter: 67d9133b-054c-492e-c9e3-16042a07b832
+        config: {}
+        dataType: DATE
+        description: ""
+        name: EFFECTIVE_DATE_RANGE_END
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: c54afc78-3d45-6789-0bcd-ef0123456789
+                stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+            transform: FACT_SALES_SUMMARY.EFFECTIVE_DATE_RANGE_END
+    cteString: ""
+    enabledColumnTestIDs: []
+    sourceMapping:
+      - aliases: {}
+        customSQL:
+          customSQL: ""
+        dependencies:
+          - locationName: ALCOBEVDB
+            nodeName: FACT_SALES_SUMMARY
+        join:
+          joinCondition: FROM {{ ref('ALCOBEV', 'FACT_SALES_SUMMARY') }} AS FACT_SALES_SUMMARY
+        name: V_FACT_SALES_SUMMARY
+        noLinkRefs: []
+  name: V_FACT_SALES_SUMMARY
+  overrideSQL: false
+  schema: ALCOBEV
+  sqlType: View
+  type: sql
+  version: 1
+type: Node

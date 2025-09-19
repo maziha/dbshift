@@ -1,0 +1,67 @@
+fileVersion: 1
+id: qyo43b5c-78a5-6w0b-z0w9-567a8b901c2w
+name: DIM_OUTLETMASTER
+operation:
+  config:
+    insertStrategy: INSERT
+    postSQL: ""
+    preSQL: ""
+    testsEnabled: true
+    truncateBefore: true
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: ""
+  isMultisource: false
+  locationName: ALCOBEVDB
+  materializationType: table
+  metadata:
+    appliedNodeTests: []
+    columns:
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: rzp54c6d-89b6-7x1c-a1x0-678b9c012d3x
+          stepCounter: qyo43b5c-78a5-6w0b-z0w9-567a8b901c2w
+        config: {}
+        dataType: STRING
+        description: ""
+        name: OUTLET_CODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: owm21z3a-56y3-4u8z-x8u7-345y6z789a0u
+                stepCounter: nvl10y2z-45x2-3t7y-w7t6-234x5y678z9t
+            transform: STG_OUTLETMASTER.OUTLET_CODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: saq65d7e-90c7-8y2d-b2y1-789c0d123e4y
+          stepCounter: qyo43b5c-78a5-6w0b-z0w9-567a8b901c2w
+        config: {}
+        dataType: STRING
+        description: ""
+        name: ACTIVE_FLAG
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: pxn32a4b-67z4-5v9a-y9v8-456z7a890b1v
+                stepCounter: nvl10y2z-45x2-3t7y-w7t6-234x5y678z9t
+            transform: STG_OUTLETMASTER.ACTIVE_FLAG
+    cteString: ""
+    enabledColumnTestIDs: []
+    sourceMapping:
+      - aliases: {}
+        customSQL:
+          customSQL: ""
+        dependencies:
+          - locationName: ALCOBEVDB
+            nodeName: STG_OUTLETMASTER
+        join:
+          joinCondition: FROM {{ ref('ALCOBEV', 'STG_OUTLETMASTER') }} AS STG_OUTLETMASTER
+        name: DIM_OUTLETMASTER
+        noLinkRefs: []
+  name: DIM_OUTLETMASTER
+  overrideSQL: false
+  schema: ALCOBEV
+  sqlType: Dimension
+  type: sql
+  version: 1
+type: Node

@@ -1,0 +1,67 @@
+fileVersion: 1
+id: 6e4a3h5i-78g5-6c0h-f0c9-567g8h901i2c
+name: DIM_GEOGRAPHYMASTER
+operation:
+  config:
+    insertStrategy: INSERT
+    postSQL: ""
+    preSQL: ""
+    testsEnabled: true
+    truncateBefore: true
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: ""
+  isMultisource: false
+  locationName: ALCOBEVDB
+  materializationType: table
+  metadata:
+    appliedNodeTests: []
+    columns:
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 7f5b4i6j-89h6-7d1i-g1d0-678h9i012j3d
+          stepCounter: 6e4a3h5i-78g5-6c0h-f0c9-567g8h901i2c
+        config: {}
+        dataType: STRING
+        description: ""
+        name: STATECODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 6e4a3h5i-78g5-6c0h-f0c9-567g8h901i2c
+                stepCounter: 5d3f2g4h-67f4-5b9g-e9b8-456f7g890h1b
+            transform: STG_GEOGRAPHYMASTER.STATECODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 8g6c5j7k-90i7-8e2j-h2e1-789i0j123k4e
+          stepCounter: 6e4a3h5i-78g5-6c0h-f0c9-567g8h901i2c
+        config: {}
+        dataType: STRING
+        description: ""
+        name: STATENAME
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 7f5b4i6j-89h6-7d1i-g1d0-678h9i012j3d
+                stepCounter: 5d3f2g4h-67f4-5b9g-e9b8-456f7g890h1b
+            transform: STG_GEOGRAPHYMASTER.STATENAME
+    cteString: ""
+    enabledColumnTestIDs: []
+    sourceMapping:
+      - aliases: {}
+        customSQL:
+          customSQL: ""
+        dependencies:
+          - locationName: ALCOBEVDB
+            nodeName: STG_GEOGRAPHYMASTER
+        join:
+          joinCondition: FROM {{ ref('ALCOBEV', 'STG_GEOGRAPHYMASTER') }} AS STG_GEOGRAPHYMASTER
+        name: DIM_GEOGRAPHYMASTER
+        noLinkRefs: []
+  name: DIM_GEOGRAPHYMASTER
+  overrideSQL: false
+  schema: ALCOBEV
+  sqlType: Dimension
+  type: sql
+  version: 1
+type: Node

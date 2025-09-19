@@ -1,0 +1,54 @@
+fileVersion: 1
+id: 6a8d7e9f-43b2-4d5c-b5d3-543b2e456a7c
+name: COMPANYMASTER
+operation:
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: ""
+  locationName: ALCOBEVDB
+  metadata:
+    columns:
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 7b9c8f0a-54c3-4e6d-c6e4-654c3f567b8d
+          stepCounter: 6a8d7e9f-43b2-4d5c-b5d3-543b2e456a7c
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: COMPANYCODE
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 8c0d9a1b-65d4-4f7e-d7f5-765d4a678c9e
+          stepCounter: 6a8d7e9f-43b2-4d5c-b5d3-543b2e456a7c
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: COMPANYNAME
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+  name: COMPANYMASTER
+  schema: ALCOBEV
+  sqlType: Source
+  type: sourceInput
+  version: 1
+type: Node

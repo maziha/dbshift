@@ -1,0 +1,113 @@
+fileVersion: 1
+id: ygw21j3k-56i3-4e8j-h8e7-345i6j789k0e
+name: STG_ACTIVATIONMASTER
+operation:
+  config:
+    insertStrategy: INSERT
+    postSQL: ""
+    preSQL: ""
+    testsEnabled: true
+    truncateBefore: true
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: ""
+  isMultisource: false
+  locationName: ALCOBEVDB
+  materializationType: table
+  metadata:
+    appliedNodeTests: []
+    columns:
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: zhx32k4l-67j4-5f9k-i9f8-456j7k890l1f
+          stepCounter: ygw21j3k-56i3-4e8j-h8e7-345i6j789k0e
+        config: {}
+        dataType: STRING
+        description: ""
+        name: PRODUCTLEVELCODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: ucs87f9g-12e9-0a4f-d4a3-901e2f345g6a
+                stepCounter: tbr76e8f-01d8-9z3e-c3z2-890d1e234f5z
+            transform: am.PRODUCTLEVELCODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: aiy43l5m-78k5-6g0l-j0g9-567k8l901m2g
+          stepCounter: ygw21j3k-56i3-4e8j-h8e7-345i6j789k0e
+        config: {}
+        dataType: STRING
+        description: ""
+        name: PROMOTION_DESC
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: vdt98g0h-23f0-1b5g-e5b4-012f3g456h7b
+                stepCounter: tbr76e8f-01d8-9z3e-c3z2-890d1e234f5z
+            transform: IFF(am.PROMOTIONDESCRIPTION IS NULL OR am.PROMOTIONDESCRIPTION
+              = 'NULL', 'NO PROMOTION', CONCAT('Promo: ', LTRIM(RTRIM(am.PROMOTIONDESCRIPTION))))
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: bjz54m6n-89l6-7h1m-k1h0-678l9m012n3h
+          stepCounter: ygw21j3k-56i3-4e8j-h8e7-345i6j789k0e
+        config: {}
+        dataType: DATE
+        description: ""
+        name: EFFECTIVE_DATE_RANGE_START
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: weu09h1i-34g1-2c6h-f6c5-123g4h567i8c
+                stepCounter: tbr76e8f-01d8-9z3e-c3z2-890d1e234f5z
+            transform: IFF(am.EFFECTIVEFROM IS NULL OR am.EFFECTIVEFROM = 'NULL',
+              '1900-01-01', TO_DATE(am.EFFECTIVEFROM, 'yyyy-MM-dd'))
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: ck065n7o-90m7-8i2n-l2i1-789m0n123o4i
+          stepCounter: ygw21j3k-56i3-4e8j-h8e7-345i6j789k0e
+        config: {}
+        dataType: DATE
+        description: ""
+        name: EFFECTIVE_DATE_RANGE_END
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: xfv10i2j-45h2-3d7i-g7d6-234h5i678j9d
+                stepCounter: tbr76e8f-01d8-9z3e-c3z2-890d1e234f5z
+            transform: IFF(am.EFFECTIVETO IS NULL OR am.EFFECTIVETO = 'NULL', CURRENT_DATE,
+              TO_DATE(am.EFFECTIVETO, 'yyyy-MM-dd'))
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 182a5592-8088-40b5-9964-672522bdcc3f
+          stepCounter: ygw21j3k-56i3-4e8j-h8e7-345i6j789k0e
+        config: {}
+        dataType: DATE
+        description: For joining to subquery
+        name: EFFECTIVEFROM
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: weu09h1i-34g1-2c6h-f6c5-123g4h567i8c
+                stepCounter: tbr76e8f-01d8-9z3e-c3z2-890d1e234f5z
+            transform: TO_DATE(am.EFFECTIVEFROM, 'yyyy-MM-dd')
+    cteString: ""
+    enabledColumnTestIDs: []
+    sourceMapping:
+      - aliases:
+          ACTIVATIONMASTER: am
+        customSQL:
+          customSQL: ""
+        dependencies:
+          - locationName: ALCOBEVDB
+            nodeName: ACTIVATIONMASTER
+        join:
+          joinCondition: FROM {{ ref('ALCOBEV', 'ACTIVATIONMASTER') }} AS am
+        name: STG_ACTIVATIONMASTER
+        noLinkRefs: []
+  name: STG_ACTIVATIONMASTER
+  overrideSQL: false
+  schema: ALCOBEV
+  sqlType: Stage
+  type: sql
+  version: 1
+type: Node

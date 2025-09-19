@@ -1,0 +1,115 @@
+fileVersion: 1
+id: 5a4b7a1f-36c1-4c1d-b8d2-432a1e345f6d
+name: STG_PRIMARY_SALES_ACTUALS
+operation:
+  config:
+    insertStrategy: INSERT
+    postSQL: ""
+    preSQL: ""
+    testsEnabled: true
+    truncateBefore: true
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: ""
+  isMultisource: false
+  locationName: ALCOBEVDB
+  materializationType: table
+  metadata:
+    appliedNodeTests: []
+    columns:
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 6b5c3e4f-44e2-4d2b-a3d5-1b2c5e6d7f8d
+          stepCounter: 5a4b7a1f-36c1-4c1d-b8d2-432a1e345f6d
+        config: {}
+        dataType: STRING
+        description: ""
+        name: COMPANYCODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 1a423f6d-352b-4f9e-a612-42e12e75e1f1
+                stepCounter: 3c92a6c8-52c1-4b13-a4c3-b4d00d540301
+            transform: IFF(psa.COMPANYCODE IS NULL OR psa.COMPANYCODE = 'NULL', 'UNKNOWN',
+              UPPER(TRIM(REPLACE(psa.COMPANYCODE, ' ', ''))))
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 7c6d4f5a-55f3-4e3c-b4e6-2c3d6f7e8a9b
+          stepCounter: 5a4b7a1f-36c1-4c1d-b8d2-432a1e345f6d
+        config: {}
+        dataType: STRING
+        description: ""
+        name: STATECODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 2b876a4a-13a3-43c3-b789-f5387431c192
+                stepCounter: 3c92a6c8-52c1-4b13-a4c3-b4d00d540301
+            transform: IFF(psa.STATECODE IS NULL OR psa.STATECODE = 'NULL', 'UNKNOWN',
+              LTRIM(RTRIM(psa.STATECODE)))
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 8d7e5a6b-66a4-4f4d-c5f7-3d4e7a8f9ba2
+          stepCounter: 5a4b7a1f-36c1-4c1d-b8d2-432a1e345f6d
+        config: {}
+        dataType: STRING
+        description: ""
+        name: SKUCODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 3c267c4f-22f3-42e7-a979-d5c41499e432
+                stepCounter: 3c92a6c8-52c1-4b13-a4c3-b4d00d540301
+            transform: IFF(psa.SKUCODE IS NULL OR psa.SKUCODE = 'NULL', 'UNKNOWN',
+              SUBSTRING(LTRIM(RTRIM(psa.SKUCODE)), 1, 10))
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 9e8f6b7c-77b5-4a5e-d6a8-4e5f8b9a0cb3
+          stepCounter: 5a4b7a1f-36c1-4c1d-b8d2-432a1e345f6d
+        config: {}
+        dataType: STRING
+        description: ""
+        name: CUSTOMERCODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 4d193d5f-14a5-4f4d-b389-9e8c3228a042
+                stepCounter: 3c92a6c8-52c1-4b13-a4c3-b4d00d540301
+            transform: psa.CUSTOMERCODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: af9a7c8d-88c6-4b6f-e7b9-5f6a9cac1db4
+          stepCounter: 5a4b7a1f-36c1-4c1d-b8d2-432a1e345f6d
+        config: {}
+        dataType: FLOAT
+        description: ""
+        name: VOLUMEACTUALCASE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 5e632e1a-53b4-4e2b-b89e-2e5f3214b752
+                stepCounter: 3c92a6c8-52c1-4b13-a4c3-b4d00d540301
+            transform: COALESCE(TRY_CAST(TRIM(psa.VOLUMEACTUALCASE) AS FLOAT), 0)
+    cteString: ""
+    enabledColumnTestIDs: []
+    sourceMapping:
+      - aliases:
+          PRIMARY_SALES_ACTUALS: psa
+        customSQL:
+          customSQL: ""
+        dependencies:
+          - locationName: ALCOBEVDB
+            nodeName: PRIMARY_SALES_ACTUALS
+        join:
+          joinCondition: FROM {{ ref('ALCOBEV', 'PRIMARY_SALES_ACTUALS') }} AS psa
+            WHERE COALESCE(TRY_CAST(LTRIM(RTRIM(psa.VOLUMEACTUALCASE)) AS FLOAT),
+            0) > 0
+        name: STG_PRIMARY_SALES_ACTUALS
+        noLinkRefs: []
+  name: STG_PRIMARY_SALES_ACTUALS
+  overrideSQL: false
+  schema: ALCOBEV
+  sqlType: Stage
+  type: sql
+  version: 1
+type: Node

@@ -1,0 +1,258 @@
+fileVersion: 1
+id: 56c8022a-f43b-481d-b8d2-05f319f6a721
+name: FACT_SALES_SUMMARY
+operation:
+  config:
+    insertStrategy: INSERT
+    postSQL: ""
+    preSQL: ""
+    testsEnabled: true
+    truncateBefore: true
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: Aggregated sales summary fact table
+  isMultisource: false
+  locationName: ALCOBEVDB
+  materializationType: table
+  metadata:
+    appliedNodeTests: []
+    columns:
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 0f8f30bb-7123-4567-8901-23456789abcd
+          stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+        config: {}
+        dataType: STRING
+        description: ""
+        name: COMPANYCODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 6b5c3e4f-44e2-4d2b-a3d5-1b2c5e6d7f8d
+                stepCounter: 5a4b7a1f-36c1-4c1d-b8d2-432a1e345f6d
+            transform: psa.COMPANYCODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 1a9c41cd-8234-5678-9012-3456789abcde
+          stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+        config: {}
+        dataType: STRING
+        description: ""
+        name: COMPANYNAME
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 3b6d5a8f-45cb-4d3b-be4f-345a6b789ca0
+                stepCounter: 1f4b3e6d-23a9-4b1f-9c2d-123e4f567a8b
+            transform: dim_company.COMPANYNAME
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 2ba052de-9345-6789-0123-456789abcdef
+          stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+        config: {}
+        dataType: STRING
+        description: ""
+        name: STATECODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 7c6d4f5a-55f3-4e3c-b4e6-2c3d6f7e8a9b
+                stepCounter: 5a4b7a1f-36c1-4c1d-b8d2-432a1e345f6d
+            transform: psa.STATECODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 3cb163ef-a456-7890-1234-56789abcdeff
+          stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+        config: {}
+        dataType: STRING
+        description: ""
+        name: STATENAME
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 8g6c5j7k-90i7-8e2j-h2e1-789i0j123k4e
+                stepCounter: 6e4a3h5i-78g5-6c0h-f0c9-567g8h901i2c
+            transform: dim_geo.STATENAME
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 4dc274f0-b567-8901-2345-6789abcdef01
+          stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+        config: {}
+        dataType: STRING
+        description: ""
+        name: SKUCODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 8d7e5a6b-66a4-4f4d-c5f7-3d4e7a8f9ba2
+                stepCounter: 5a4b7a1f-36c1-4c1d-b8d2-432a1e345f6d
+            transform: psa.SKUCODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 5ed38501-c678-9012-3456-789abcdef012
+          stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+        config: {}
+        dataType: STRING
+        description: ""
+        name: ITEMNAME
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: bj9f8m0n-23l0-1h5m-k5h4-012l3m456n7h
+                stepCounter: 9h7d6k8l-01j8-9f3k-i3f2-890j1k234l5f
+            transform: dim_prod.ITEMNAME
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 6fe49612-d789-0123-4567-89abcdef0123
+          stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+        config: {}
+        dataType: FLOAT
+        description: ""
+        name: TOTAL_VOLUMEACTUALCASE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: af9a7c8d-88c6-4b6f-e7b9-5f6a9cac1db4
+                stepCounter: 5a4b7a1f-36c1-4c1d-b8d2-432a1e345f6d
+            transform: SUM(psa.VOLUMEACTUALCASE)
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 70f5a723-e890-1234-5678-9abcdef01234
+          stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+        config: {}
+        dataType: FLOAT
+        description: ""
+        name: TOTAL_PLAN_QTY
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: jrh76u8v-01t8-9p3u-s3p2-890t1u234v5p
+                stepCounter: goe43r5s-78q5-6m0r-p0m9-567q8r901s2m
+            transform: SUM(psp.PLAN_QTY)
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 8106b834-f901-2345-6789-abcdef012345
+          stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+        config: {}
+        dataType: FLOAT
+        description: ""
+        name: AVERAGE_PRICE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: af9a7c8d-88c6-4b6f-e7b9-5f6a9cac1db4
+                stepCounter: 5a4b7a1f-36c1-4c1d-b8d2-432a1e345f6d
+            transform: AVG(psa.VOLUMEACTUALCASE)
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 9217c945-0a12-3456-789a-bcdef0123456
+          stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+        config: {}
+        dataType: STRING
+        description: ""
+        name: ACTIVE_FLAG
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: saq65d7e-90c7-8y2d-b2y1-789c0d123e4y
+                stepCounter: qyo43b5c-78a5-6w0b-z0w9-567a8b901c2w
+            transform: dim_outlet.ACTIVE_FLAG
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: a328da56-1b23-4567-89ab-cdef01234567
+          stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+        config: {}
+        dataType: STRING
+        description: ""
+        name: PROMOTION_DESC
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: f3398q0r-23p0-1l5q-o5l4-012p3q456r7l
+                stepCounter: d1176o8p-01n8-9j3o-m3j2-890n1o234p5j
+            transform: dim_act.PROMOTION_DESC
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: b439eb67-2c34-5678-9abc-def012345678
+          stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+        config: {}
+        dataType: DATE
+        description: ""
+        name: EFFECTIVE_DATE_RANGE_START
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: g4409r1s-34q1-2m6r-p6m5-123q4r567s8m
+                stepCounter: d1176o8p-01n8-9j3o-m3j2-890n1o234p5j
+            transform: dim_act.EFFECTIVE_DATE_RANGE_START
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: c54afc78-3d45-6789-0bcd-ef0123456789
+          stepCounter: 56c8022a-f43b-481d-b8d2-05f319f6a721
+        config: {}
+        dataType: DATE
+        description: ""
+        name: EFFECTIVE_DATE_RANGE_END
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: h5510s2t-45r2-3n7s-q7n6-234r5s678t9n
+                stepCounter: d1176o8p-01n8-9j3o-m3j2-890n1o234p5j
+            transform: dim_act.EFFECTIVE_DATE_RANGE_END
+    cteString: ""
+    enabledColumnTestIDs: []
+    sourceMapping:
+      - aliases:
+          STG_PRIMARY_SALES_ACTUALS: psa
+          DIM_COMPANYMASTER: dim_company
+          DIM_GEOGRAPHYMASTER: dim_geo
+          DIM_PRODUCTMASTER: dim_prod
+          STG_PRIMARY_SALES_PLAN_AOP: psp
+          DIM_OUTLETMASTER: dim_outlet
+          DIM_ACTIVATIONMASTER: dim_act
+          LATEST_ACTIVATION_DATE: amr
+        customSQL:
+          customSQL: ""
+        dependencies:
+          - locationName: ALCOBEVDB
+            nodeName: STG_PRIMARY_SALES_ACTUALS
+          - locationName: ALCOBEVDB
+            nodeName: DIM_COMPANYMASTER
+          - locationName: ALCOBEVDB
+            nodeName: DIM_GEOGRAPHYMASTER
+          - locationName: ALCOBEVDB
+            nodeName: DIM_PRODUCTMASTER
+          - locationName: ALCOBEVDB
+            nodeName: STG_PRIMARY_SALES_PLAN_AOP
+          - locationName: ALCOBEVDB
+            nodeName: DIM_OUTLETMASTER
+          - locationName: ALCOBEVDB
+            nodeName: DIM_ACTIVATIONMASTER
+          - locationName: ALCOBEVDB
+            nodeName: LATEST_ACTIVATION_DATE
+        join:
+          joinCondition: "FROM {{ ref('ALCOBEV', 'STG_PRIMARY_SALES_ACTUALS') }} AS\
+            \ psa\nLEFT JOIN {{ ref('ALCOBEV', 'DIM_COMPANYMASTER') }} AS dim_company\
+            \ ON psa.COMPANYCODE = dim_company.COMPANYCODE\nLEFT JOIN {{ ref('ALCOBEV',\
+            \ 'DIM_GEOGRAPHYMASTER') }} AS dim_geo ON psa.STATECODE = dim_geo.STATECODE\n\
+            LEFT JOIN {{ ref('ALCOBEV', 'DIM_PRODUCTMASTER') }} AS dim_prod ON psa.SKUCODE\
+            \ = dim_prod.SKUCODE\nLEFT JOIN {{ ref('ALCOBEV', 'STG_PRIMARY_SALES_PLAN_AOP')\
+            \ }} AS psp ON psa.STATECODE = psp.STATECODE AND psa.SKUCODE = psp.SKUCODE\n\
+            LEFT JOIN {{ ref('ALCOBEV', 'DIM_OUTLETMASTER') }} AS dim_outlet ON psa.CUSTOMERCODE\
+            \ = dim_outlet.OUTLET_CODE\nLEFT JOIN {{ ref('ALCOBEV', 'LATEST_ACTIVATION_DATE')\
+            \ }} as amr ON psa.SKUCODE = amr.PRODUCTLEVELCODE\nLEFT JOIN {{ ref('ALCOBEV',\
+            \ 'DIM_ACTIVATIONMASTER') }} as dim_act ON psa.SKUCODE = dim_act.PRODUCTLEVELCODE\
+            \ AND dim_act.EFFECTIVEFROM = amr.LATEST_EFFECTIVEFROM\nGROUP BY \n  psa.COMPANYCODE,\n\
+            \  dim_company.COMPANYNAME,\n   psa.STATECODE,\n   dim_geo.STATENAME,\n\
+            \   psa.SKUCODE,\n   dim_prod.ITEMNAME,\n   dim_outlet.ACTIVE_FLAG,\n \
+            \  dim_act.PROMOTION_DESC,\n   dim_act.EFFECTIVE_DATE_RANGE_START,\n  \
+            \ dim_act.EFFECTIVE_DATE_RANGE_END"
+        name: FACT_SALES_SUMMARY
+        noLinkRefs: []
+  name: FACT_SALES_SUMMARY
+  overrideSQL: false
+  schema: ALCOBEV
+  sqlType: Fact
+  type: sql
+  version: 1
+type: Node

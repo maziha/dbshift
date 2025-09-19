@@ -1,0 +1,111 @@
+fileVersion: 1
+id: 3c92a6c8-52c1-4b13-a4c3-b4d00d540301
+name: PRIMARY_SALES_ACTUALS
+operation:
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: ""
+  locationName: ALCOBEVDB
+  metadata:
+    columns:
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 1a423f6d-352b-4f9e-a612-42e12e75e1f1
+          stepCounter: 3c92a6c8-52c1-4b13-a4c3-b4d00d540301
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: COMPANYCODE
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 2b876a4a-13a3-43c3-b789-f5387431c192
+          stepCounter: 3c92a6c8-52c1-4b13-a4c3-b4d00d540301
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: STATECODE
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 3c267c4f-22f3-42e7-a979-d5c41499e432
+          stepCounter: 3c92a6c8-52c1-4b13-a4c3-b4d00d540301
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: SKUCODE
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 4d193d5f-14a5-4f4d-b389-9e8c3228a042
+          stepCounter: 3c92a6c8-52c1-4b13-a4c3-b4d00d540301
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: CUSTOMERCODE
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 5e632e1a-53b4-4e2b-b89e-2e5f3214b752
+          stepCounter: 3c92a6c8-52c1-4b13-a4c3-b4d00d540301
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: VOLUMEACTUALCASE
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+  name: PRIMARY_SALES_ACTUALS
+  schema: ALCOBEV
+  sqlType: Source
+  type: sourceInput
+  version: 1
+type: Node

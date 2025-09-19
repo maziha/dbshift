@@ -1,0 +1,82 @@
+fileVersion: 1
+id: goe43r5s-78q5-6m0r-p0m9-567q8r901s2m
+name: STG_PRIMARY_SALES_PLAN_AOP
+operation:
+  config:
+    insertStrategy: INSERT
+    postSQL: ""
+    preSQL: ""
+    testsEnabled: true
+    truncateBefore: true
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: ""
+  isMultisource: false
+  locationName: ALCOBEVDB
+  materializationType: table
+  metadata:
+    appliedNodeTests: []
+    columns:
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: hpf54s6t-89r6-7n1s-q1n0-678r9s012t3n
+          stepCounter: goe43r5s-78q5-6m0r-p0m9-567q8r901s2m
+        config: {}
+        dataType: STRING
+        description: ""
+        name: STATECODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: dlb10o2p-45n2-3j7o-m7j6-234n5o678p9j
+                stepCounter: cka09n1o-34m1-2i6n-l6i5-123m4n567o8i
+            transform: psp.STATECODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: iqg65t7u-90s7-8o2t-r2o1-789s0t123u4o
+          stepCounter: goe43r5s-78q5-6m0r-p0m9-567q8r901s2m
+        config: {}
+        dataType: STRING
+        description: ""
+        name: SKUCODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: emc21p3q-56o3-4k8p-n8k7-345o6p789q0k
+                stepCounter: cka09n1o-34m1-2i6n-l6i5-123m4n567o8i
+            transform: psp.SKUCODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: jrh76u8v-01t8-9p3u-s3p2-890t1u234v5p
+          stepCounter: goe43r5s-78q5-6m0r-p0m9-567q8r901s2m
+        config: {}
+        dataType: FLOAT
+        description: ""
+        name: PLAN_QTY
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: fnd32q4r-67p4-5l9q-o9l8-456p7q890r1l
+                stepCounter: cka09n1o-34m1-2i6n-l6i5-123m4n567o8i
+            transform: COALESCE(TRY_CAST(TRIM(psp.PLAN_QTY) AS FLOAT), 0)
+    cteString: ""
+    enabledColumnTestIDs: []
+    sourceMapping:
+      - aliases:
+          PRIMARY_SALES_PLAN_AOP: psp
+        customSQL:
+          customSQL: ""
+        dependencies:
+          - locationName: ALCOBEVDB
+            nodeName: PRIMARY_SALES_PLAN_AOP
+        join:
+          joinCondition: FROM {{ ref('ALCOBEV', 'PRIMARY_SALES_PLAN_AOP') }} AS psp
+        name: STG_PRIMARY_SALES_PLAN_AOP
+        noLinkRefs: []
+  name: STG_PRIMARY_SALES_PLAN_AOP
+  overrideSQL: false
+  schema: ALCOBEV
+  sqlType: Stage
+  type: sql
+  version: 1
+type: Node

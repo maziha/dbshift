@@ -1,0 +1,109 @@
+fileVersion: 1
+id: d1176o8p-01n8-9j3o-m3j2-890n1o234p5j
+name: DIM_ACTIVATIONMASTER
+operation:
+  config:
+    insertStrategy: INSERT
+    postSQL: ""
+    preSQL: ""
+    testsEnabled: true
+    truncateBefore: true
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: ""
+  isMultisource: false
+  locationName: ALCOBEVDB
+  materializationType: table
+  metadata:
+    appliedNodeTests: []
+    columns:
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: e2287p9q-12o9-0k4p-n4k3-901o2p345q6k
+          stepCounter: d1176o8p-01n8-9j3o-m3j2-890n1o234p5j
+        config: {}
+        dataType: STRING
+        description: ""
+        name: PRODUCTLEVELCODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: zhx32k4l-67j4-5f9k-i9f8-456j7k890l1f
+                stepCounter: ygw21j3k-56i3-4e8j-h8e7-345i6j789k0e
+            transform: STG_ACTIVATIONMASTER.PRODUCTLEVELCODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: f3398q0r-23p0-1l5q-o5l4-012p3q456r7l
+          stepCounter: d1176o8p-01n8-9j3o-m3j2-890n1o234p5j
+        config: {}
+        dataType: STRING
+        description: ""
+        name: PROMOTION_DESC
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: aiy43l5m-78k5-6g0l-j0g9-567k8l901m2g
+                stepCounter: ygw21j3k-56i3-4e8j-h8e7-345i6j789k0e
+            transform: STG_ACTIVATIONMASTER.PROMOTION_DESC
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: g4409r1s-34q1-2m6r-p6m5-123q4r567s8m
+          stepCounter: d1176o8p-01n8-9j3o-m3j2-890n1o234p5j
+        config: {}
+        dataType: DATE
+        description: ""
+        name: EFFECTIVE_DATE_RANGE_START
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: bjz54m6n-89l6-7h1m-k1h0-678l9m012n3h
+                stepCounter: ygw21j3k-56i3-4e8j-h8e7-345i6j789k0e
+            transform: STG_ACTIVATIONMASTER.EFFECTIVE_DATE_RANGE_START
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: h5510s2t-45r2-3n7s-q7n6-234r5s678t9n
+          stepCounter: d1176o8p-01n8-9j3o-m3j2-890n1o234p5j
+        config: {}
+        dataType: DATE
+        description: ""
+        name: EFFECTIVE_DATE_RANGE_END
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: ck065n7o-90m7-8i2n-l2i1-789m0n123o4i
+                stepCounter: ygw21j3k-56i3-4e8j-h8e7-345i6j789k0e
+            transform: STG_ACTIVATIONMASTER.EFFECTIVE_DATE_RANGE_END
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 1fcc9c53-b230-47b8-80f4-5f532f170f27
+          stepCounter: d1176o8p-01n8-9j3o-m3j2-890n1o234p5j
+        config: {}
+        dataType: DATE
+        description: ""
+        name: EFFECTIVEFROM
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 182a5592-8088-40b5-9964-672522bdcc3f
+                stepCounter: ygw21j3k-56i3-4e8j-h8e7-345i6j789k0e
+            transform: STG_ACTIVATIONMASTER.EFFECTIVEFROM
+    cteString: ""
+    enabledColumnTestIDs: []
+    sourceMapping:
+      - aliases: {}
+        customSQL:
+          customSQL: ""
+        dependencies:
+          - locationName: ALCOBEVDB
+            nodeName: STG_ACTIVATIONMASTER
+        join:
+          joinCondition: FROM {{ ref('ALCOBEV', 'STG_ACTIVATIONMASTER') }} AS STG_ACTIVATIONMASTER
+        name: DIM_ACTIVATIONMASTER
+        noLinkRefs: []
+  name: DIM_ACTIVATIONMASTER
+  overrideSQL: false
+  schema: ALCOBEV
+  sqlType: Dimension
+  type: sql
+  version: 1
+type: Node

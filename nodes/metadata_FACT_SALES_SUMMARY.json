@@ -1,0 +1,117 @@
+{
+  "tables": [
+    {
+      "tableName": "ALCOBEVDB.ALCOBEV.PRIMARY_SALES_ACTUALS",
+      "alias": "psa"
+    },
+    {
+      "tableName": "ALCOBEVDB.ALCOBEV.COMPANYMASTER",
+      "alias": "cm"
+    },
+    {
+      "tableName": "ALCOBEVDB.ALCOBEV.GEOGRAPHYMASTER",
+      "alias": "gm"
+    },
+    {
+      "tableName": "ALCOBEVDB.ALCOBEV.PRODUCTMASTER",
+      "alias": "pm"
+    },
+    {
+      "tableName": "ALCOBEVDB.ALCOBEV.PRIMARY_SALES_PLAN_AOP",
+      "alias": "psp"
+    },
+    {
+      "tableName": "ALCOBEVDB.ALCOBEV.OUTLETMASTER",
+      "alias": "om"
+    },
+    {
+      "tableName": "ALCOBEVDB.ALCOBEV.ACTIVATIONMASTER",
+      "alias": "am"
+    },
+    {
+      "tableName": "ALCOBEVDB.ALCOBEV.ACTIVATIONMASTER",
+      "alias": null
+    }
+  ],
+  "columnsByTable": {
+    "ALCOBEVDB.ALCOBEV.PRIMARY_SALES_ACTUALS": [
+      "COMPANYCODE",
+      "STATECODE",
+      "SKUCODE",
+      "VOLUMEACTUALCASE",
+      "CUSTOMERCODE"
+    ],
+    "ALCOBEVDB.ALCOBEV.COMPANYMASTER": [
+      "COMPANYNAME",
+      "COMPANYCODE"
+    ],
+    "ALCOBEVDB.ALCOBEV.GEOGRAPHYMASTER": [
+      "STATENAME",
+      "STATECODE"
+    ],
+    "ALCOBEVDB.ALCOBEV.PRODUCTMASTER": [
+      "ITEMNAME",
+      "SKUCODE"
+    ],
+    "ALCOBEVDB.ALCOBEV.PRIMARY_SALES_PLAN_AOP": [
+      "PLAN_QTY",
+      "STATECODE",
+      "SKUCODE"
+    ],
+    "ALCOBEVDB.ALCOBEV.OUTLETMASTER": [
+      "ACTIVE_FLAG",
+      "OUTLET_CODE"
+    ],
+    "ALCOBEVDB.ALCOBEV.ACTIVATIONMASTER": [
+      "PROMOTIONDESCRIPTION",
+      "EFFECTIVEFROM",
+      "EFFECTIVETO",
+      "PRODUCTLEVELCODE"
+    ],
+    "FACT_SALES_SUMMARY": []
+  },
+  "joins": [
+    {
+      "type": "LEFT JOIN",
+      "leftTable": "ALCOBEVDB.ALCOBEV.PRIMARY_SALES_ACTUALS",
+      "rightTable": "ALCOBEVDB.ALCOBEV.COMPANYMASTER",
+      "onCondition": "psa.COMPANYCODE = cm.COMPANYCODE"
+    },
+    {
+      "type": "LEFT JOIN",
+      "leftTable": "ALCOBEVDB.ALCOBEV.PRIMARY_SALES_ACTUALS",
+      "rightTable": "ALCOBEVDB.ALCOBEV.GEOGRAPHYMASTER",
+      "onCondition": "psa.STATECODE = gm.STATECODE"
+    },
+    {
+      "type": "LEFT JOIN",
+      "leftTable": "ALCOBEVDB.ALCOBEV.PRIMARY_SALES_ACTUALS",
+      "rightTable": "ALCOBEVDB.ALCOBEV.PRODUCTMASTER",
+      "onCondition": "psa.SKUCODE = pm.SKUCODE"
+    },
+    {
+      "type": "LEFT JOIN",
+      "leftTable": "ALCOBEVDB.ALCOBEV.PRIMARY_SALES_ACTUALS",
+      "rightTable": "ALCOBEVDB.ALCOBEV.PRIMARY_SALES_PLAN_AOP",
+      "onCondition": "psa.STATECODE = psp.STATECODE and psa.SKUCODE = psp.SKUCODE"
+    },
+    {
+      "type": "LEFT JOIN",
+      "leftTable": "ALCOBEVDB.ALCOBEV.PRIMARY_SALES_ACTUALS",
+      "rightTable": "ALCOBEVDB.ALCOBEV.OUTLETMASTER",
+      "onCondition": "psa.CUSTOMERCODE = om.OUTLET_CODE"
+    },
+    {
+      "type": "LEFT JOIN",
+      "leftTable": "ALCOBEVDB.ALCOBEV.PRIMARY_SALES_ACTUALS",
+      "rightTable": "ALCOBEVDB.ALCOBEV.ACTIVATIONMASTER",
+      "onCondition": "psa.SKUCODE = am.PRODUCTLEVELCODE"
+    },
+    {
+      "type": "LEFT JOIN",
+      "leftTable": "ALCOBEVDB.ALCOBEV.PRIMARY_SALES_ACTUALS",
+      "rightTable": "amr",
+      "onCondition": "psa.SKUCODE = amr.PRODUCTLEVELCODE \n    and am.EFFECTIVEFROM = amr.EFFECTIVEFROM"
+    }
+  ]
+}

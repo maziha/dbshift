@@ -1,0 +1,54 @@
+fileVersion: 1
+id: 2a8b9c0d-34c1-4e6d-b7e5-123b4c567d8e
+name: GEOGRAPHYMASTER
+operation:
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: ""
+  locationName: ALCOBEVDB
+  metadata:
+    columns:
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 3b9c0d1e-45d2-4f7e-c8f6-234c5d678e9f
+          stepCounter: 2a8b9c0d-34c1-4e6d-b7e5-123b4c567d8e
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: STATECODE
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 4c0d1e2f-56e3-4a8f-d9a7-345d6e789f0a
+          stepCounter: 2a8b9c0d-34c1-4e6d-b7e5-123b4c567d8e
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: STATENAME
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+  name: GEOGRAPHYMASTER
+  schema: ALCOBEV
+  sqlType: Source
+  type: sourceInput
+  version: 1
+type: Node

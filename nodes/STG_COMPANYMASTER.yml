@@ -1,0 +1,69 @@
+fileVersion: 1
+id: 9d1e0b2c-76e5-4a8f-e8a6-876e5b789d0f
+name: STG_COMPANYMASTER
+operation:
+  config:
+    insertStrategy: INSERT
+    postSQL: ""
+    preSQL: ""
+    testsEnabled: true
+    truncateBefore: true
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: ""
+  isMultisource: false
+  locationName: ALCOBEVDB
+  materializationType: table
+  metadata:
+    appliedNodeTests: []
+    columns:
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: ae2f1c3d-87f6-4b9a-f9b7-987f6c890e1a
+          stepCounter: 9d1e0b2c-76e5-4a8f-e8a6-876e5b789d0f
+        config: {}
+        dataType: STRING
+        description: ""
+        name: COMPANYCODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 7b9c8f0a-54c3-4e6d-c6e4-654c3f567b8d
+                stepCounter: 6a8d7e9f-43b2-4d5c-b5d3-543b2e456a7c
+            transform: cm.COMPANYCODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: bf3a2d4e-98a7-4caB-0ac8-a98a7d901f2b
+          stepCounter: 9d1e0b2c-76e5-4a8f-e8a6-876e5b789d0f
+        config: {}
+        dataType: STRING
+        description: ""
+        name: COMPANYNAME
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 8c0d9a1b-65d4-4f7e-d7f5-765d4a678c9e
+                stepCounter: 6a8d7e9f-43b2-4d5c-b5d3-543b2e456a7c
+            transform: IFF(cm.COMPANYNAME IS NULL OR cm.COMPANYNAME = 'NULL', 'UNKNOWN',
+              CONCAT(LEFT(TRIM(cm.COMPANYNAME), 3), '***'))
+    cteString: ""
+    enabledColumnTestIDs: []
+    sourceMapping:
+      - aliases:
+          COMPANYMASTER: cm
+        customSQL:
+          customSQL: ""
+        dependencies:
+          - locationName: ALCOBEVDB
+            nodeName: COMPANYMASTER
+        join:
+          joinCondition: FROM {{ ref('ALCOBEV', 'COMPANYMASTER') }} AS cm
+        name: STG_COMPANYMASTER
+        noLinkRefs: []
+  name: STG_COMPANYMASTER
+  overrideSQL: false
+  schema: ALCOBEV
+  sqlType: Stage
+  type: sql
+  version: 1
+type: Node

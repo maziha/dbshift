@@ -1,0 +1,67 @@
+fileVersion: 1
+id: 9h7d6k8l-01j8-9f3k-i3f2-890j1k234l5f
+name: DIM_PRODUCTMASTER
+operation:
+  config:
+    insertStrategy: INSERT
+    postSQL: ""
+    preSQL: ""
+    testsEnabled: true
+    truncateBefore: true
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: ""
+  isMultisource: false
+  locationName: ALCOBEVDB
+  materializationType: table
+  metadata:
+    appliedNodeTests: []
+    columns:
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: ai8e7l9m-12k9-0g4l-j4g3-901k2l345m6g
+          stepCounter: 9h7d6k8l-01j8-9f3k-i3f2-890j1k234l5f
+        config: {}
+        dataType: STRING
+        description: ""
+        name: SKUCODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 9h7d6k8l-01j8-9f3k-i3f2-890j1k234l5f
+                stepCounter: 8g6c5j7k-90i7-8e2j-h2e1-789i0j123k4e
+            transform: STG_PRODUCTMASTER.SKUCODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: bj9f8m0n-23l0-1h5m-k5h4-012l3m456n7h
+          stepCounter: 9h7d6k8l-01j8-9f3k-i3f2-890j1k234l5f
+        config: {}
+        dataType: STRING
+        description: ""
+        name: ITEMNAME
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: ai8e7l9m-12k9-0g4l-j4g3-901k2l345m6g
+                stepCounter: 8g6c5j7k-90i7-8e2j-h2e1-789i0j123k4e
+            transform: STG_PRODUCTMASTER.ITEMNAME
+    cteString: ""
+    enabledColumnTestIDs: []
+    sourceMapping:
+      - aliases: {}
+        customSQL:
+          customSQL: ""
+        dependencies:
+          - locationName: ALCOBEVDB
+            nodeName: STG_PRODUCTMASTER
+        join:
+          joinCondition: FROM {{ ref('ALCOBEV', 'STG_PRODUCTMASTER') }} AS STG_PRODUCTMASTER
+        name: DIM_PRODUCTMASTER
+        noLinkRefs: []
+  name: DIM_PRODUCTMASTER
+  overrideSQL: false
+  schema: ALCOBEV
+  sqlType: Dimension
+  type: sql
+  version: 1
+type: Node

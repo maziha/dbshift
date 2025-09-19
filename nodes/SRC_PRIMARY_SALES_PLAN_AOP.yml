@@ -1,0 +1,73 @@
+fileVersion: 1
+id: cka09n1o-34m1-2i6n-l6i5-123m4n567o8i
+name: PRIMARY_SALES_PLAN_AOP
+operation:
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: ""
+  locationName: ALCOBEVDB
+  metadata:
+    columns:
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: dlb10o2p-45n2-3j7o-m7j6-234n5o678p9j
+          stepCounter: cka09n1o-34m1-2i6n-l6i5-123m4n567o8i
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: STATECODE
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: emc21p3q-56o3-4k8p-n8k7-345o6p789q0k
+          stepCounter: cka09n1o-34m1-2i6n-l6i5-123m4n567o8i
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: SKUCODE
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: fnd32q4r-67p4-5l9q-o9l8-456p7q890r1l
+          stepCounter: cka09n1o-34m1-2i6n-l6i5-123m4n567o8i
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: PLAN_QTY
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+  name: PRIMARY_SALES_PLAN_AOP
+  schema: ALCOBEV
+  sqlType: Source
+  type: sourceInput
+  version: 1
+type: Node

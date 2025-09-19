@@ -1,0 +1,72 @@
+fileVersion: 1
+id: nvl10y2z-45x2-3t7y-w7t6-234x5y678z9t
+name: STG_OUTLETMASTER
+operation:
+  config:
+    insertStrategy: INSERT
+    postSQL: ""
+    preSQL: ""
+    testsEnabled: true
+    truncateBefore: true
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: ""
+  isMultisource: false
+  locationName: ALCOBEVDB
+  materializationType: table
+  metadata:
+    appliedNodeTests: []
+    columns:
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: owm21z3a-56y3-4u8z-x8u7-345y6z789a0u
+          stepCounter: nvl10y2z-45x2-3t7y-w7t6-234x5y678z9t
+        config: {}
+        dataType: STRING
+        description: ""
+        name: OUTLET_CODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: ltj98w0x-23v0-1r5w-u5r4-012v3w456x7r
+                stepCounter: ksi87v9w-12u9-0q4v-t4q3-901u2v345w6q
+            transform: om.OUTLET_CODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: pxn32a4b-67z4-5v9a-y9v8-456z7a890b1v
+          stepCounter: nvl10y2z-45x2-3t7y-w7t6-234x5y678z9t
+        config: {}
+        dataType: STRING
+        description: ""
+        name: ACTIVE_FLAG
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: muk09x1y-34w1-2s6x-v6s5-123w4x567y8s
+                stepCounter: ksi87v9w-12u9-0q4v-t4q3-901u2v345w6q
+            transform: |-
+              CASE 
+                  WHEN om.ACTIVE_FLAG = 1 THEN 'YES'
+                  ELSE 'NO'
+              END
+    cteString: ""
+    enabledColumnTestIDs: []
+    sourceMapping:
+      - aliases:
+          OUTLETMASTER: om
+        customSQL:
+          customSQL: ""
+        dependencies:
+          - locationName: ALCOBEVDB
+            nodeName: OUTLETMASTER
+        join:
+          joinCondition: FROM {{ ref('ALCOBEV', 'OUTLETMASTER') }} AS om
+        name: STG_OUTLETMASTER
+        noLinkRefs: []
+  name: STG_OUTLETMASTER
+  overrideSQL: false
+  schema: ALCOBEV
+  sqlType: Stage
+  type: sql
+  version: 1
+type: Node

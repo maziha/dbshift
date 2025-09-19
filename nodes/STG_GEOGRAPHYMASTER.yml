@@ -1,0 +1,69 @@
+fileVersion: 1
+id: 5d3f2g4h-67f4-5b9g-e9b8-456f7g890h1b
+name: STG_GEOGRAPHYMASTER
+operation:
+  config:
+    insertStrategy: INSERT
+    postSQL: ""
+    preSQL: ""
+    testsEnabled: true
+    truncateBefore: true
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: ""
+  isMultisource: false
+  locationName: ALCOBEVDB
+  materializationType: table
+  metadata:
+    appliedNodeTests: []
+    columns:
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 6e4a3h5i-78g5-6c0h-f0c9-567g8h901i2c
+          stepCounter: 5d3f2g4h-67f4-5b9g-e9b8-456f7g890h1b
+        config: {}
+        dataType: STRING
+        description: ""
+        name: STATECODE
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 3b9c0d1e-45d2-4f7e-c8f6-234c5d678e9f
+                stepCounter: 2a8b9c0d-34c1-4e6d-b7e5-123b4c567d8e
+            transform: gm.STATECODE
+      - appliedColumnTests: {}
+        columnReference:
+          columnCounter: 7f5b4i6j-89h6-7d1i-g1d0-678h9i012j3d
+          stepCounter: 5d3f2g4h-67f4-5b9g-e9b8-456f7g890h1b
+        config: {}
+        dataType: STRING
+        description: ""
+        name: STATENAME
+        nullable: true
+        sourceColumnReferences:
+          - columnReferences:
+              - columnCounter: 4c0d1e2f-56e3-4a8f-d9a7-345d6e789f0a
+                stepCounter: 2a8b9c0d-34c1-4e6d-b7e5-123b4c567d8e
+            transform: IFF(gm.STATENAME IS NULL OR gm.STATENAME = 'NULL', 'UNKNOWN',
+              LOWER(TRIM(gm.STATENAME)))
+    cteString: ""
+    enabledColumnTestIDs: []
+    sourceMapping:
+      - aliases:
+          GEOGRAPHYMASTER: gm
+        customSQL:
+          customSQL: ""
+        dependencies:
+          - locationName: ALCOBEVDB
+            nodeName: GEOGRAPHYMASTER
+        join:
+          joinCondition: FROM {{ ref('ALCOBEV', 'GEOGRAPHYMASTER') }} AS gm
+        name: STG_GEOGRAPHYMASTER
+        noLinkRefs: []
+  name: STG_GEOGRAPHYMASTER
+  overrideSQL: false
+  schema: ALCOBEV
+  sqlType: Stage
+  type: sql
+  version: 1
+type: Node

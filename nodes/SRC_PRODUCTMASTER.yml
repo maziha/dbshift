@@ -1,0 +1,54 @@
+fileVersion: 1
+id: 7f5b4i6j-89h6-7d1i-g1d0-678h9i012j3d
+name: PRODUCTMASTER
+operation:
+  database: ALCOBEVDB
+  deployEnabled: true
+  description: ""
+  locationName: ALCOBEVDB
+  metadata:
+    columns:
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 8g6c5j7k-90i7-8e2j-h2e1-789i0j123k4e
+          stepCounter: 7f5b4i6j-89h6-7d1i-g1d0-678h9i012j3d
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: SKUCODE
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+      - acceptedValues:
+          strictMatch: true
+          values: []
+        appliedColumnTests: {}
+        columnReference:
+          columnCounter: 9h7d6k8l-01j8-9f3k-i3f2-890j1k234l5f
+          stepCounter: 7f5b4i6j-89h6-7d1i-g1d0-678h9i012j3d
+        config: {}
+        dataType: STRING
+        defaultValue: ""
+        description: ""
+        name: ITEMNAME
+        nullable: true
+        primaryKey: false
+        sourceColumnReferences:
+          - columnReferences: []
+            transform: ""
+        transform: ""
+        uniqueKey: false
+  name: PRODUCTMASTER
+  schema: ALCOBEV
+  sqlType: Source
+  type: sourceInput
+  version: 1
+type: Node
